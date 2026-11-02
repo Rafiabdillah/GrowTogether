@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { consumeRedirectResult } from '../lib/firebase';
-import { Heart, Users, Sparkles } from 'lucide-react';
+import { Users, Sparkles } from 'lucide-react';
 
 function friendlyAuthError(err: unknown): string {
   const code = (err as { code?: string })?.code ?? '';
@@ -54,9 +54,12 @@ export const AuthView: React.FC = () => {
     <div className="min-h-dvh bg-gradient-to-br from-amber-50 via-orange-50 to-rose-50 dark:from-stone-900 dark:via-stone-900 dark:to-stone-800 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-3xl bg-gradient-to-br from-amber-500 to-rose-500 mb-4">
-            <Heart className="w-8 h-8 text-white" fill="currentColor" />
-          </div>
+          <img
+            src={`${import.meta.env.BASE_URL}icon.svg`}
+            alt=""
+            aria-hidden="true"
+            className="inline-block w-20 h-20 rounded-[1.6rem] shadow-lg shadow-rose-500/10 mb-4"
+          />
           <h1 className="text-3xl font-bold text-stone-900 dark:text-stone-100 mb-2">
             GrowTogether
           </h1>

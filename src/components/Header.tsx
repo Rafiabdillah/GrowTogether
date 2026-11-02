@@ -1,4 +1,4 @@
-import { Moon, Sun, Users, WifiOff, Heart, Settings } from 'lucide-react';
+import { Moon, Sun, Users, WifiOff, Settings } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { PWAInstallButton } from './PWAInstallButton';
 
@@ -29,9 +29,12 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, onOpenS
     <header className="sticky top-0 z-30 bg-white dark:bg-stone-900 border-b border-stone-200 dark:border-stone-800">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3 shrink-0">
-          <div className="w-9 h-9 rounded-xl border-2 border-rose-400 dark:border-rose-500 flex items-center justify-center">
-            <Heart className="w-4 h-4 text-rose-500 fill-rose-500/20" aria-hidden="true" />
-          </div>
+          <img
+            src={`${import.meta.env.BASE_URL}icon.svg`}
+            alt=""
+            aria-hidden="true"
+            className="w-9 h-9 rounded-xl shadow-sm"
+          />
           <div className="hidden sm:flex flex-col">
             <span className="text-base font-bold tracking-tight text-stone-900 dark:text-stone-100 font-sans leading-none">
               GrowTogether

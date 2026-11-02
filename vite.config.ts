@@ -15,15 +15,15 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.ico', 'icon.svg', 'apple-touch-icon.png'],
+        includeAssets: ['favicon.ico', 'icon.svg', 'logo.svg', 'apple-touch-icon.png'],
         manifest: {
           id: base,
           name: 'GrowTogether: Habit & Growth Tracker Pasangan',
           short_name: 'GrowTogether',
           description: 'Aplikasi habit & growth tracker untuk dua orang yang berkembang bersama.',
           lang: 'id',
-          theme_color: '#FBFBF9',
-          background_color: '#FBFBF9',
+          theme_color: '#FFF9F2',
+          background_color: '#FFF9F2',
           display: 'standalone',
           start_url: base,
           scope: base,
@@ -41,7 +41,7 @@ export default defineConfig(() => {
               purpose: 'any',
             },
             {
-              src: `${base}pwa-512x512.png`,
+              src: `${base}pwa-maskable-512x512.png`,
               sizes: '512x512',
               type: 'image/png',
               purpose: 'maskable',

@@ -1,36 +1,27 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="GrowTogether">
   <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#FFFDF9"/>
-      <stop offset="100%" stop-color="#F4EFE6"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFF9F2"/>
+      <stop offset="1" stop-color="#FBEADF"/>
     </linearGradient>
-    <linearGradient id="coralGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#FF8A65"/>
-      <stop offset="100%" stop-color="#E06D53"/>
+    <linearGradient id="coral" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#EE8A72"/>
+      <stop offset="1" stop-color="#D95C43"/>
     </linearGradient>
-    <linearGradient id="sageGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#6BB99D"/>
-      <stop offset="100%" stop-color="#437A64"/>
-    </linearGradient>
-    <linearGradient id="amberGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#F6C562"/>
-      <stop offset="100%" stop-color="#E5A93C"/>
+    <linearGradient id="leaf" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5C9B7E"/>
+      <stop offset="1" stop-color="#3C7259"/>
     </linearGradient>
   </defs>
-  <rect width="512" height="512" rx="128" fill="url(#bg)"/>
-  
-  <!-- Left Sprout Leaf (Coral: Partner A) -->
-  <path d="M 256 360 C 240 280, 150 250, 140 180 C 130 110, 210 100, 246 160 C 252 170, 255 190, 256 220" 
-        fill="url(#coralGrad)" opacity="0.92"/>
-        
-  <!-- Right Sprout Leaf (Sage Teal: Partner B) -->
-  <path d="M 256 360 C 272 280, 362 250, 372 180 C 382 110, 302 100, 266 160 C 260 170, 257 190, 256 220" 
-        fill="url(#sageGrad)" opacity="0.92"/>
-        
-  <!-- Intertwined Heart Stem & Root -->
-  <path d="M 256 220 L 256 400 M 240 400 C 248 410, 264 410, 272 400" 
-        stroke="#7A6F62" stroke-width="14" stroke-linecap="round"/>
-        
-  <!-- Glowing Seed of Shared Growth -->
-  <circle cx="256" cy="180" r="18" fill="url(#amberGrad)"/>
+  <rect width="1024" height="1024" rx="224" fill="url(#bg)"/>
+  <rect x="28" y="28" width="968" height="968" rx="200" fill="none" stroke="#F0D8C8" stroke-width="8" opacity="0.7"/>
+  <path d="M512 786 C512 830 512 858 512 892" stroke="#C08428" stroke-width="26" stroke-linecap="round" fill="none"/>
+  <path d="M506 858 C466 842 430 848 408 876 C446 896 488 888 506 858 Z" fill="url(#leaf)"/>
+  <path d="M518 826 C558 810 594 816 616 844 C578 864 536 856 518 826 Z" fill="url(#coral)"/>
+  <path d="M512 800 C440 740 192 600 192 380 C192 264 284 192 388 192 C452 192 500 228 512 276 Z" fill="url(#coral)"/>
+  <path d="M512 800 C584 740 832 600 832 380 C832 264 740 192 636 192 C572 192 524 228 512 276 Z" fill="url(#leaf)"/>
+  <path d="M498 722 C420 644 334 560 310 436" stroke="#FFD8CB" stroke-width="20" stroke-linecap="round" fill="none" opacity="0.85"/>
+  <path d="M430 600 C402 574 382 548 372 512" stroke="#FFD8CB" stroke-width="14" stroke-linecap="round" fill="none" opacity="0.7"/>
+  <path d="M526 722 C604 644 690 560 714 436" stroke="#C4E3D1" stroke-width="20" stroke-linecap="round" fill="none" opacity="0.85"/>
+  <path d="M594 600 C622 574 642 548 652 512" stroke="#C4E3D1" stroke-width="14" stroke-linecap="round" fill="none" opacity="0.7"/>
 </svg>

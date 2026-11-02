@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="GrowTogether">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFF9F2"/>
+      <stop offset="1" stop-color="#FBEADF"/>
+    </linearGradient>
+    <linearGradient id="coral" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#EE8A72"/>
+      <stop offset="1" stop-color="#D95C43"/>
+    </linearGradient>
+    <linearGradient id="leaf" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5C9B7E"/>
+      <stop offset="1" stop-color="#3C7259"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <g transform="translate(512 508) scale(0.88) translate(-512 -512)">
+    <path d="M512 786 C512 830 512 858 512 892" stroke="#C08428" stroke-width="26" stroke-linecap="round" fill="none"/>
+    <path d="M506 858 C466 842 430 848 408 876 C446 896 488 888 506 858 Z" fill="url(#leaf)"/>
+    <path d="M518 826 C558 810 594 816 616 844 C578 864 536 856 518 826 Z" fill="url(#coral)"/>
+    <path d="M512 800 C440 740 192 600 192 380 C192 264 284 192 388 192 C452 192 500 228 512 276 Z" fill="url(#coral)"/>
+    <path d="M512 800 C584 740 832 600 832 380 C832 264 740 192 636 192 C572 192 524 228 512 276 Z" fill="url(#leaf)"/>
+    <path d="M498 722 C420 644 334 560 310 436" stroke="#FFD8CB" stroke-width="20" stroke-linecap="round" fill="none" opacity="0.85"/>
+    <path d="M430 600 C402 574 382 548 372 512" stroke="#FFD8CB" stroke-width="14" stroke-linecap="round" fill="none" opacity="0.7"/>
+    <path d="M526 722 C604 644 690 560 714 436" stroke="#C4E3D1" stroke-width="20" stroke-linecap="round" fill="none" opacity="0.85"/>
+    <path d="M594 600 C622 574 642 548 652 512" stroke="#C4E3D1" stroke-width="14" stroke-linecap="round" fill="none" opacity="0.7"/>
+  </g>
+</svg>
