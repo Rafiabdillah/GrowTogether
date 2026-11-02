@@ -1,12 +1,12 @@
 {
-  "projectId": "sharp-lock-n3rp2",
-  "appId": "1:614511906415:web:706d972b302ffc7e91c79a",
-  "apiKey": "AIzaSyB-zh5e2zPzlqQBfiPHza_siCghqNX1VS8",
-  "authDomain": "sharp-lock-n3rp2.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-growtogether-2a76c7a6-8fba-4590-a6e3-7aeb8920c352",
-  "storageBucket": "sharp-lock-n3rp2.firebasestorage.app",
-  "messagingSenderId": "614511906415",
+  "projectId": "growtogether-rafiabdillah",
+  "appId": "1:209603344296:web:a7a7a07d34a156c34ecf9d",
+  "apiKey": "AIzaSyARY4xvqXJYDQqI7wQNRmGGPlUvyNQvVio",
+  "authDomain": "growtogether-rafiabdillah.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "growtogether-rafiabdillah.firebasestorage.app",
+  "messagingSenderId": "209603344296",
   "measurementId": "",
-  "oAuthClientId": "614511906415-asv5sbfd984afv56vvrdjn6potam0afn.apps.googleusercontent.com",
+  "oAuthClientId": "",
   "recaptchaSiteKey": ""
 }
