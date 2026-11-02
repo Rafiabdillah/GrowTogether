@@ -3,7 +3,6 @@ import {
   Users2,
   BookMarked,
   Heart,
-  Sparkles,
   Plus,
   Star,
   Quote,
@@ -11,20 +10,31 @@ import {
   Copy,
   Check,
   Target,
-  Send,
   Calendar,
   Moon,
   Dices,
   Trees,
   Smile,
-  Coins,
+  Pencil,
+  Trash2,
+  Lock,
+  Share2,
+  CheckCircle2,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { Book } from '../types/index';
 import { NightlyCheckInModal } from '../components/NightlyCheckInModal';
 import { WheelOfFortune } from '../components/WheelOfFortune';
 import { DecorationShopModal } from '../components/DecorationShopModal';
 import { useDialog } from '../hooks/useDialog';
+
+const getIsoWeek = (date: Date) => {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNumber = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return { weekNumber, year: d.getUTCFullYear() };
+};
 
 export const CoupleView: React.FC = () => {
   const {
@@ -35,14 +45,20 @@ export const CoupleView: React.FC = () => {
     journals,
     checkins,
     agreements,
+    sessions,
     addBook,
+    updateBook,
+    deleteBook,
     addJournal,
+    updateJournal,
+    deleteJournal,
     sendReaction,
     pairWithCode,
   } = useApp();
 
   const [activeSubTab, setActiveSubTab] = useState<'rituals' | 'books' | 'journal' | 'challenge' | 'pairing'>('rituals');
   const [copiedCode, setCopiedCode] = useState(false);
+  const [copyError, setCopyError] = useState(false);
   const [inputCode, setInputCode] = useState('');
   const [pairSuccess, setPairSuccess] = useState(false);
 
@@ -51,8 +67,9 @@ export const CoupleView: React.FC = () => {
   const [isWheelModalOpen, setIsWheelModalOpen] = useState(false);
   const [isDecorationModalOpen, setIsDecorationModalOpen] = useState(false);
 
-  // New Book Modal
+  // New/Edit Book Modal
   const [isBookModalOpen, setIsBookModalOpen] = useState(false);
+  const [editingBookId, setEditingBookId] = useState<string | null>(null);
   const [bookTitle, setBookTitle] = useState('');
   const [bookAuthor, setBookAuthor] = useState('');
   const [bookStatus, setBookStatus] = useState<'reading' | 'completed' | 'wishlist'>('reading');
@@ -66,11 +83,43 @@ export const CoupleView: React.FC = () => {
   const [whatWorked, setWhatWorked] = useState('');
   const [whatWasHard, setWhatWasHard] = useState('');
   const [nextWeekGoal, setNextWeekGoal] = useState('');
+  const [journalIsShared, setJournalIsShared] = useState(true);
 
-  const handleCopyCode = () => {
-    navigator.clipboard.writeText(currentUser.inviteCode || 'GROW88');
+  const copyText = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      setCopyError(true);
+      setTimeout(() => setCopyError(false), 3000);
+      return false;
+    }
+  };
+
+  const handleCopyCode = async () => {
+    const ok = await copyText(currentUser.inviteCode || 'GROW88');
+    if (!ok) return;
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 2000);
+  };
+
+  const openBookModal = (book?: (typeof books)[number]) => {
+    if (book) {
+      setEditingBookId(book.id);
+      setBookTitle(book.title);
+      setBookAuthor(book.author);
+      setBookStatus(book.status);
+      setBookRating(book.rating || 5);
+      setBookQuote(book.favoriteQuote || '');
+    } else {
+      setEditingBookId(null);
+      setBookTitle('');
+      setBookAuthor('');
+      setBookStatus('reading');
+      setBookRating(5);
+      setBookQuote('');
+    }
+    setIsBookModalOpen(true);
   };
 
   const handlePairSubmit = async (e: React.FormEvent) => {
@@ -88,48 +137,83 @@ export const CoupleView: React.FC = () => {
     e.preventDefault();
     if (!bookTitle.trim()) return;
 
-    await addBook({
-      coupleId: couple.id,
-      title: bookTitle.trim(),
-      author: bookAuthor.trim() || 'Penulis',
-      status: bookStatus,
-      rating: bookRating,
-      favoriteQuote: bookQuote.trim() || undefined,
-      addedBy: currentUser.displayName,
-    });
+    if (editingBookId) {
+      await updateBook(editingBookId, {
+        title: bookTitle.trim(),
+        author: bookAuthor.trim() || 'Penulis',
+        status: bookStatus,
+        rating: bookRating,
+        favoriteQuote: bookQuote.trim() || undefined,
+      });
+    } else {
+      await addBook({
+        coupleId: couple.id,
+        title: bookTitle.trim(),
+        author: bookAuthor.trim() || 'Penulis',
+        status: bookStatus,
+        rating: bookRating,
+        favoriteQuote: bookQuote.trim() || undefined,
+        addedBy: currentUser.displayName,
+      });
+    }
 
     setBookTitle('');
     setBookAuthor('');
     setBookQuote('');
+    setEditingBookId(null);
     setIsBookModalOpen(false);
+  };
+
+  const handleDeleteBook = async (id: string) => {
+    if (window.confirm('Hapus buku ini dari rak bacaan kalian?')) {
+      await deleteBook(id);
+    }
   };
 
   const handleCreateJournal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!whatWorked.trim()) return;
 
+    const { weekNumber, year } = getIsoWeek(new Date());
     await addJournal({
       coupleId: couple.id,
       authorId: currentUser.id,
       authorName: currentUser.displayName,
-      weekNumber: 44,
-      year: 2026,
+      weekNumber,
+      year,
       whatWorked: whatWorked.trim(),
       whatWasHard: whatWasHard.trim(),
       nextWeekGoal: nextWeekGoal.trim(),
-      isShared: true,
+      isShared: journalIsShared,
     });
 
     setWhatWorked('');
     setWhatWasHard('');
     setNextWeekGoal('');
+    setJournalIsShared(true);
     setIsJournalModalOpen(false);
   };
 
-  // Weekly Challenge calculation (target 300m reading)
-  const challengeTarget = 300;
-  const challengeCurrent = 245;
-  const challengePercent = Math.min(100, Math.round((challengeCurrent / challengeTarget) * 100));
+  // Weekly reading challenge, measured from real saved reading sessions in the
+  // current Monday-Sunday week.
+  const now = new Date();
+  const weekStart = new Date(now);
+  weekStart.setHours(0, 0, 0, 0);
+  const dayOfWeek = weekStart.getDay() || 7;
+  weekStart.setDate(weekStart.getDate() - dayOfWeek + 1);
+
+  const challengeTarget = couple.weeklyReadingMinutesGoal || 300;
+  const challengeCurrent = Math.round(
+    sessions
+      .filter((s) => s.category === 'baca')
+      .filter((s) => {
+        const at = new Date(s.timestamp);
+        return !Number.isNaN(at.getTime()) && at >= weekStart && at <= now;
+      })
+      .reduce((sum, s) => sum + s.durationSeconds / 60, 0)
+  );
+  const challengePercent =
+    challengeTarget > 0 ? Math.min(100, Math.round((challengeCurrent / challengeTarget) * 100)) : 0;
 
   return (
     <div className="space-y-6">
@@ -157,7 +241,8 @@ export const CoupleView: React.FC = () => {
               <Heart className="w-4 h-4 text-rose-500 fill-rose-500" />
             </div>
             <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
-              Terhubung aktif · Kode Undangan: <span className="font-mono font-bold text-amber-600 dark:text-amber-400">{currentUser.inviteCode}</span>
+              {partnerUser ? 'Terhubung aktif' : 'Menunggu pasangan bergabung'} · Kode Undangan:{' '}
+              <span className="font-mono font-bold text-amber-600 dark:text-amber-400">{currentUser.inviteCode}</span>
             </p>
           </div>
         </div>
@@ -166,7 +251,8 @@ export const CoupleView: React.FC = () => {
         <div className="flex items-center gap-2">
           <button type="button"
             onClick={() => sendReaction('❤️', 'Cinta & Dukungan', 'Selalu bangga sama kamu!')}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-semibold shadow-xs transition-all active:scale-95"
+            disabled={!partnerUser}
+            className="flex items-center gap-1.5 min-h-[44px] px-3.5 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold shadow-xs transition-all active:scale-95"
           >
             <Heart className="w-3.5 h-3.5 fill-white" />
             <span>Kirim Pelukan</span>
@@ -178,7 +264,7 @@ export const CoupleView: React.FC = () => {
       <div className="flex items-center gap-2 border-b border-stone-200 dark:border-stone-800 pb-2 overflow-x-auto">
         <button type="button"
           onClick={() => setActiveSubTab('rituals')}
-          className={`flex items-center gap-1.5 py-1.5 px-3.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
+          className={`flex items-center gap-1.5 min-h-[44px] py-1.5 px-3.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
             activeSubTab === 'rituals'
               ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900'
               : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
@@ -190,7 +276,7 @@ export const CoupleView: React.FC = () => {
 
         <button type="button"
           onClick={() => setActiveSubTab('books')}
-          className={`flex items-center gap-1.5 py-1.5 px-3.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
+          className={`flex items-center gap-1.5 min-h-[44px] py-1.5 px-3.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
             activeSubTab === 'books'
               ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900'
               : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
@@ -202,7 +288,7 @@ export const CoupleView: React.FC = () => {
 
         <button type="button"
           onClick={() => setActiveSubTab('journal')}
-          className={`flex items-center gap-1.5 py-1.5 px-3.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
+          className={`flex items-center gap-1.5 min-h-[44px] py-1.5 px-3.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
             activeSubTab === 'journal'
               ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900'
               : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
@@ -214,7 +300,7 @@ export const CoupleView: React.FC = () => {
 
         <button type="button"
           onClick={() => setActiveSubTab('challenge')}
-          className={`flex items-center gap-1.5 py-1.5 px-3.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
+          className={`flex items-center gap-1.5 min-h-[44px] py-1.5 px-3.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
             activeSubTab === 'challenge'
               ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900'
               : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
@@ -226,7 +312,7 @@ export const CoupleView: React.FC = () => {
 
         <button type="button"
           onClick={() => setActiveSubTab('pairing')}
-          className={`flex items-center gap-1.5 py-1.5 px-3.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
+          className={`flex items-center gap-1.5 min-h-[44px] py-1.5 px-3.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
             activeSubTab === 'pairing'
               ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900'
               : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
@@ -262,7 +348,7 @@ export const CoupleView: React.FC = () => {
               </div>
               <button type="button"
                 onClick={() => setIsCheckInModalOpen(true)}
-                className="mt-4 w-full py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition-colors"
+                className="mt-4 w-full min-h-[44px] py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition-colors"
               >
                 Tulis Check-in Hari Ini
               </button>
@@ -288,7 +374,7 @@ export const CoupleView: React.FC = () => {
               </div>
               <button type="button"
                 onClick={() => setIsWheelModalOpen(true)}
-                className="mt-4 w-full py-2 px-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shadow-xs transition-colors"
+                className="mt-4 w-full min-h-[44px] py-2 px-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shadow-xs transition-colors"
               >
                 Putar Roda Keberuntungan
               </button>
@@ -314,7 +400,7 @@ export const CoupleView: React.FC = () => {
               </div>
               <button type="button"
                 onClick={() => setIsDecorationModalOpen(true)}
-                className="mt-4 w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition-colors"
+                className="mt-4 w-full min-h-[44px] py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition-colors"
               >
                 Buka Toko Dekorasi
               </button>
@@ -402,8 +488,8 @@ export const CoupleView: React.FC = () => {
               </p>
             </div>
             <button type="button"
-              onClick={() => setIsBookModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-medium hover:opacity-90 transition-all"
+              onClick={() => openBookModal()}
+              className="flex items-center gap-1.5 min-h-[44px] px-3 py-1.5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-medium hover:opacity-90 transition-all"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Tambah Buku</span>
@@ -421,8 +507,8 @@ export const CoupleView: React.FC = () => {
               </p>
               <div className="pt-1">
                 <button type="button"
-                  onClick={() => setIsBookModalOpen(true)}
-                  className="px-4 py-2 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-semibold"
+                  onClick={() => openBookModal()}
+                  className="min-h-[44px] px-4 py-2 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-semibold"
                 >
                   + Tambah Buku Pertama
                 </button>
@@ -468,8 +554,26 @@ export const CoupleView: React.FC = () => {
                     )}
                   </div>
 
-                  <div className="mt-4 pt-3 border-t border-stone-100 dark:border-stone-800 flex items-center justify-between text-[11px] text-stone-500">
-                    <span>Ditambahkan oleh {book.addedBy}</span>
+                  <div className="mt-4 pt-3 border-t border-stone-100 dark:border-stone-800 flex items-center justify-between gap-2 text-[11px] text-stone-500">
+                    <span className="truncate">Ditambahkan oleh {book.addedBy}</span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => openBookModal(book)}
+                        aria-label={`Edit buku ${book.title}`}
+                        className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 hover:text-stone-800 dark:hover:text-stone-200"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteBook(book.id)}
+                        aria-label={`Hapus buku ${book.title}`}
+                        className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 text-stone-500 hover:text-rose-600"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -492,7 +596,7 @@ export const CoupleView: React.FC = () => {
             </div>
             <button type="button"
               onClick={() => setIsJournalModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-medium hover:opacity-90 transition-all"
+              className="flex items-center gap-1.5 min-h-[44px] px-3 py-1.5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-medium hover:opacity-90 transition-all"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Isi Refleksi Pekan Ini</span>
@@ -511,7 +615,7 @@ export const CoupleView: React.FC = () => {
               <div className="pt-1">
                 <button type="button"
                   onClick={() => setIsJournalModalOpen(true)}
-                  className="px-4 py-2 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-semibold"
+                  className="min-h-[44px] px-4 py-2 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-semibold"
                 >
                   + Tulis Refleksi Pekan Ini
                 </button>
@@ -524,16 +628,50 @@ export const CoupleView: React.FC = () => {
                   key={j.id}
                   className="p-6 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800 shadow-xs space-y-4"
                 >
-                  <div className="flex items-center justify-between border-b border-stone-100 dark:border-stone-800 pb-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-100 dark:border-stone-800 pb-3">
                     <div className="flex items-center gap-2">
                       <Calendar className="w-4 h-4 text-amber-500" />
                       <span className="text-xs font-bold text-stone-900 dark:text-stone-100">
                         Pekan #{j.weekNumber} · {j.year}
                       </span>
+                      <span
+                        className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full ${
+                          j.isShared
+                            ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300'
+                            : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300'
+                        }`}
+                      >
+                        {j.isShared ? <Share2 className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+                        {j.isShared ? 'Dibagikan' : 'Privat'}
+                      </span>
                     </div>
-                    <span className="text-xs text-stone-500 dark:text-stone-400">
-                      Ditulis oleh {j.authorName || 'Pasangan'}
-                    </span>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-stone-500 dark:text-stone-400">
+                        Ditulis oleh {j.authorName || 'Pasangan'}
+                      </span>
+                      {j.authorId === currentUser.id && (
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => updateJournal(j.id, { isShared: !j.isShared })}
+                            className="min-h-[36px] px-2 rounded-lg text-[11px] font-semibold text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800"
+                          >
+                            {j.isShared ? 'Jadikan privat' : 'Bagikan'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (window.confirm('Hapus catatan refleksi ini?')) void deleteJournal(j.id);
+                            }}
+                            aria-label="Hapus refleksi"
+                            className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-stone-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <div className="space-y-3">
@@ -581,7 +719,7 @@ export const CoupleView: React.FC = () => {
                   Tantangan Pekan Ini
                 </span>
                 <h3 className="text-lg font-bold text-stone-900 dark:text-stone-100 mt-0.5">
-                  Total 300 Menit Membaca Berdua
+                  Total {challengeTarget} Menit Membaca Berdua
                 </h3>
               </div>
               <span className="text-2xl font-extrabold text-stone-900 dark:text-stone-100 font-mono">
@@ -640,7 +778,24 @@ export const CoupleView: React.FC = () => {
             </button>
           </div>
 
-          {/* Input Partner Code */}
+          {copyError && (
+            <p role="alert" className="text-xs text-rose-600 dark:text-rose-400">
+              Clipboard diblokir browser. Salin kode di atas secara manual.
+            </p>
+          )}
+
+          {partnerUser ? (
+            <div className="p-4 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/50 flex items-start gap-2.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+              <div className="text-xs text-emerald-800 dark:text-emerald-200 leading-relaxed">
+                <p className="font-bold">Kalian sudah terhubung</p>
+                <p className="mt-0.5">
+                  Habit, sesi fokus, taman, dan kesepakatan tersinkron otomatis dengan{' '}
+                  {partnerUser.displayName}. Bagikan kode di atas bila pasangan perlu memasang aplikasi di perangkat lain.
+                </p>
+              </div>
+            </div>
+          ) : (
           <form onSubmit={handlePairSubmit} className="space-y-3">
             <label className="block text-xs font-semibold text-stone-700 dark:text-stone-300">
               Masukkan Kode dari Pasangan
@@ -667,6 +822,7 @@ export const CoupleView: React.FC = () => {
               </p>
             )}
           </form>
+          )}
         </div>
       )}
 
@@ -675,7 +831,7 @@ export const CoupleView: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div ref={bookDialogRef} role="dialog" aria-modal="true" aria-label="Tambah buku" className="w-full max-w-md rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 p-6 shadow-2xl text-stone-800 dark:text-stone-100">
             <h3 className="text-lg font-bold text-stone-900 dark:text-stone-100">
-              Tambah Buku Baru ke Rak
+              {editingBookId ? 'Edit Buku di Rak' : 'Tambah Buku Baru ke Rak'}
             </h3>
 
             <form onSubmit={handleCreateBook} className="mt-4 space-y-4">
@@ -755,7 +911,7 @@ export const CoupleView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setIsBookModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-medium text-stone-500"
+                  className="min-h-[44px] px-4 py-2 rounded-xl text-xs font-medium text-stone-500"
                 >
                   Batal
                 </button>
@@ -763,7 +919,7 @@ export const CoupleView: React.FC = () => {
                   type="submit"
                   className="px-5 py-2 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-medium"
                 >
-                  Simpan Buku
+                  {editingBookId ? 'Simpan Perubahan' : 'Simpan Buku'}
                 </button>
               </div>
             </form>
@@ -825,11 +981,21 @@ export const CoupleView: React.FC = () => {
                 />
               </div>
 
+              <label className="flex items-center gap-2 min-h-[44px] text-xs font-medium text-stone-700 dark:text-stone-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={journalIsShared}
+                  onChange={(e) => setJournalIsShared(e.target.checked)}
+                  className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500"
+                />
+                <span>Bagikan refleksi ini ke pasangan</span>
+              </label>
+
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setIsJournalModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-medium text-stone-500"
+                  className="min-h-[44px] px-4 py-2 rounded-xl text-xs font-medium text-stone-500"
                 >
                   Batal
                 </button>

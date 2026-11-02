@@ -7,12 +7,8 @@ import {
   BookOpen,
   Brain,
   CheckCircle2,
-  Clock,
   Maximize2,
   Minimize2,
-  Volume2,
-  VolumeX,
-  Flame,
   CloudRain,
   FlameKindling,
 } from 'lucide-react';
@@ -27,14 +23,24 @@ interface TimerViewProps {
   initialHabitId?: string;
   initialCategory?: HabitCategory;
   initialMinutes?: number;
+  initialRequestId?: number;
 }
+
+const CATEGORY_LABELS: Record<HabitCategory, string> = {
+  baca: 'Membaca',
+  belajar: 'Belajar',
+  kesehatan: 'Kesehatan',
+  spiritual: 'Spiritual',
+  kustom: 'Fokus',
+};
 
 export const TimerView: React.FC<TimerViewProps> = ({
   initialHabitId,
   initialCategory = 'baca',
   initialMinutes = 10,
+  initialRequestId,
 }) => {
-  const { habits, recordFocusSession, couple } = useApp();
+  const { habits, recordFocusSession, couple, currentUser } = useApp();
 
   const [category, setCategory] = useState<HabitCategory>(initialCategory);
   const [selectedHabitId, setSelectedHabitId] = useState<string>(initialHabitId || '');
@@ -60,19 +66,37 @@ export const TimerView: React.FC<TimerViewProps> = ({
   const endAtRef = useRef<number>(0);
   const secondsRemainingRef = useRef<number>(initialMinutes * 60);
   const completeRef = useRef<() => void>(() => {});
+  const appliedRequestIdRef = useRef<number | undefined>(undefined);
   const logDialogRef = useDialog<HTMLDivElement>(isLogModalOpen, () => {
     setIsLogModalOpen(false);
     setSecondsRemaining(targetDurationMinutes * 60);
   });
 
   useEffect(() => {
+    if (initialRequestId !== undefined && appliedRequestIdRef.current === initialRequestId) return;
+    appliedRequestIdRef.current = initialRequestId;
     if (initialCategory) setCategory(initialCategory);
     if (initialHabitId) setSelectedHabitId(initialHabitId);
     if (initialMinutes) {
       setTargetDurationMinutes(initialMinutes);
       setSecondsRemaining(initialMinutes * 60);
     }
-  }, [initialCategory, initialHabitId, initialMinutes]);
+  }, [initialCategory, initialHabitId, initialMinutes, initialRequestId]);
+
+  const selectableHabits = habits.filter(
+    (h) =>
+      (!h.isPrivate || h.ownerId === currentUser.id) &&
+      (h.ownerId === currentUser.id || h.isShared)
+  );
+  const selectedHabit = habits.find((h) => h.id === selectedHabitId);
+
+  const handleHabitSelect = (id: string) => {
+    setSelectedHabitId(id);
+    const habit = habits.find((h) => h.id === id);
+    if (!habit) return;
+    setCategory(habit.category);
+    if (habit.targetMinutes > 0) handlePresetSelect(habit.targetMinutes);
+  };
 
   useEffect(() => {
     secondsRemainingRef.current = secondsRemaining;
@@ -152,6 +176,7 @@ export const TimerView: React.FC<TimerViewProps> = ({
     });
 
     setLoggedSeconds(elapsed);
+    setSessionTitle(selectedHabit?.title || '');
     setIsLogModalOpen(true);
   };
   completeRef.current = handleCompleteSession;
@@ -186,7 +211,10 @@ export const TimerView: React.FC<TimerViewProps> = ({
       habitId: selectedHabitId || undefined,
       category,
       durationSeconds: manualMinutes * 60,
-      title: manualTitle || (category === 'baca' ? 'Membaca Buku (Manual)' : 'Belajar (Manual)'),
+      title:
+        manualTitle ||
+        selectedHabit?.title ||
+        (category === 'baca' ? 'Membaca Buku (Manual)' : 'Belajar (Manual)'),
       keyTakeaway: manualTakeaway,
     });
 
@@ -208,7 +236,7 @@ export const TimerView: React.FC<TimerViewProps> = ({
       {isFullscreen && (
         <div className="absolute top-6 left-4 right-4 sm:left-6 sm:right-6 flex flex-wrap items-center justify-between gap-2 z-10">
           <span className="text-xs font-semibold text-stone-300">
-            Mode fokus penuh: {category === 'baca' ? 'Membaca Buku' : 'Belajar'}
+            Mode fokus penuh: {selectedHabit?.title || CATEGORY_LABELS[category]}
           </span>
 
           <div className="flex items-center gap-2">
@@ -325,6 +353,36 @@ export const TimerView: React.FC<TimerViewProps> = ({
               <Maximize2 className="w-4 h-4" aria-hidden="true" />
             </button>
           </div>
+        </div>
+      )}
+
+      {!isFullscreen && !isManualInput && (
+        <div className="rounded-2xl border border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 p-4 space-y-2">
+          <label
+            htmlFor="timer-habit"
+            className="block text-xs font-semibold text-stone-700 dark:text-stone-300"
+          >
+            Habit yang dikerjakan
+          </label>
+          <select
+            id="timer-habit"
+            value={selectedHabitId}
+            onChange={(e) => handleHabitSelect(e.target.value)}
+            className="w-full min-h-[44px] px-3 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-base sm:text-sm"
+          >
+            <option value="">Tanpa habit (fokus bebas)</option>
+            {selectableHabits.map((h) => (
+              <option key={h.id} value={h.id}>
+                {h.title}
+                {h.targetMinutes > 0 ? ` · ${h.targetMinutes} mnt` : ''}
+              </option>
+            ))}
+          </select>
+          <p className="text-[11px] text-stone-500 dark:text-stone-400">
+            {selectedHabit
+              ? 'Sesi dicatat pada habit ini dan menuntaskannya saat target menit tercapai.'
+              : 'Pilih habit agar sesi fokus langsung dihitung ke kebiasaanmu.'}
+          </p>
         </div>
       )}
 

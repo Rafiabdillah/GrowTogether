@@ -41,6 +41,7 @@ import {
   query,
   where,
   getDoc,
+  deleteField,
 } from 'firebase/firestore';
 
 interface AppContextType {
@@ -99,6 +100,8 @@ interface AppContextType {
   updateBook: (id: string, updates: Partial<Book>) => Promise<void>;
   deleteBook: (id: string) => Promise<void>;
   addJournal: (entry: Omit<JournalEntry, 'id' | 'createdAt'>) => Promise<void>;
+  updateJournal: (id: string, updates: Partial<JournalEntry>) => Promise<void>;
+  deleteJournal: (id: string) => Promise<void>;
   toggleGraceDay: () => Promise<void>;
   switchSimulatedUser: () => void;
   pairWithCode: (code: string) => Promise<boolean>;
@@ -116,6 +119,9 @@ interface AppContextType {
   createAgreement: (agreement: Omit<Agreement, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
   approveAgreement: (id: string) => Promise<void>;
   rejectAgreement: (id: string) => Promise<void>;
+  triggerAgreement: (id: string) => Promise<void>;
+  deleteAgreement: (id: string) => Promise<void>;
+  respondToPendingAction: (id: string, approve: boolean) => Promise<void>;
   resolveSanction: (id: string, resolution: 'completed' | 'relief_requested' | 'swapped', note?: string) => Promise<void>;
   useJokerCard: (agreementId: string) => Promise<boolean>;
   togglePauseAllSanctions: () => Promise<void>;
@@ -256,6 +262,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     ...saved.users,
   });
   const [couple, setCouple] = useState<Couple>(saved.couple ?? SEED_COUPLE);
+  const coupleRef = useRef<Couple>(couple);
   const [habits, setHabits] = useState<Habit[]>(saved.habits ?? SEED_HABITS);
   const [logs, setLogs] = useState<HabitLog[]>(saved.logs ?? []);
   const [sessions, setSessions] = useState<FocusSession[]>(saved.sessions ?? []);
@@ -368,6 +375,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.warn('Error setting up user profile:', error);
     }
   };
+
+  useEffect(() => {
+    coupleRef.current = couple;
+  }, [couple]);
 
   useEffect(() => {
     const snapshot: PersistedState = {
@@ -827,8 +838,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Delete Habit
   const deleteHabit = async (id: string) => {
+    const ownLogs = logs.filter((l) => l.habitId === id && l.userId === currentUser.id);
     setHabits((prev) => prev.filter((h) => h.id !== id));
+    setLogs((prev) => prev.filter((l) => !(l.habitId === id && l.userId === currentUser.id)));
     try {
+      await Promise.all(ownLogs.map((l) => cloudDeleteDoc(doc(db, 'logs', l.id))));
       await cloudDeleteDoc(doc(db, 'habits', id));
     } catch (e) {
       console.warn('Firestore deleteHabit:', e);
@@ -986,6 +1000,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await cloudSetDoc(doc(db, 'journals', id), entryObj);
     } catch (e) {
       console.warn('Firestore addJournal:', e);
+    }
+  };
+
+  const updateJournal = async (id: string, updates: Partial<JournalEntry>) => {
+    setJournals((prev) => prev.map((j) => (j.id === id ? { ...j, ...updates } : j)));
+    try {
+      await cloudSetDoc(doc(db, 'journals', id), updates, { merge: true });
+    } catch (e) {
+      console.warn('Firestore updateJournal:', e);
+    }
+  };
+
+  const deleteJournal = async (id: string) => {
+    setJournals((prev) => prev.filter((j) => j.id !== id));
+    try {
+      await cloudDeleteDoc(doc(db, 'journals', id));
+    } catch (e) {
+      console.warn('Firestore deleteJournal:', e);
     }
   };
 
@@ -1255,9 +1287,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Create Agreement
   const createAgreement = async (agreementData: Omit<Agreement, 'id' | 'createdAt' | 'updatedAt'>) => {
     const id = `agr_${Date.now()}`;
+    // Without a partner there is nobody to approve; keep the pact usable immediately.
+    const hasPartner = !!couple.user2Id;
     const agreementObj: Agreement = {
       ...agreementData,
       id,
+      status: hasPartner ? 'pending_approval' : 'active',
+      partnerApproved: !hasPartner,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -1293,32 +1329,90 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  // Resolve Sanction (Completed, Relief requested, Swapped)
+  // Manually mark a pact as triggered (used by the "simulate" action and by
+  // automatic checks). Rewards can be triggered manually as a celebration too.
+  const triggerAgreement = async (id: string) => {
+    const target = agreements.find((a) => a.id === id);
+    if (!target) return;
+    const updates = {
+      status: 'triggered' as const,
+      timesTriggered: (target.timesTriggered || 0) + 1,
+      updatedAt: new Date().toISOString(),
+    };
+    setAgreements((prev) => prev.map((a) => (a.id === id ? { ...a, ...updates } : a)));
+    try {
+      await cloudSetDoc(doc(db, 'agreements', id), updates, { merge: true });
+    } catch (e) {
+      console.warn('Firestore triggerAgreement:', e);
+    }
+  };
+
+  const deleteAgreement = async (id: string) => {
+    setAgreements((prev) => prev.filter((a) => a.id !== id));
+    try {
+      await cloudDeleteDoc(doc(db, 'agreements', id));
+    } catch (e) {
+      console.warn('Firestore deleteAgreement:', e);
+    }
+  };
+
+  // Resolve Sanction. Completion is final, while relief/swap requests wait for
+  // the partner's decision instead of applying themselves unilaterally.
   const resolveSanction = async (
     id: string,
     resolution: 'completed' | 'relief_requested' | 'swapped',
     note?: string
   ) => {
+    const target = agreements.find((a) => a.id === id);
+    if (!target) return;
+
+    if (resolution === 'completed') {
+      setAgreements((prev) =>
+        prev.map((a) =>
+          a.id === id
+            ? { ...a, status: 'completed', timesCompleted: (a.timesCompleted || 0) + 1 }
+            : a
+        )
+      );
+      try {
+        await cloudSetDoc(
+          doc(db, 'agreements', id),
+          {
+            status: 'completed',
+            timesCompleted: (target.timesCompleted || 0) + 1,
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+      } catch (e) {
+        console.warn('Firestore resolveSanction:', e);
+      }
+      return;
+    }
+
+    const pendingAction = resolution === 'relief_requested' ? 'relief' : 'swap';
     setAgreements((prev) =>
-      prev.map((a) => {
-        if (a.id === id) {
-          if (resolution === 'completed') {
-            return { ...a, status: 'completed', timesCompleted: (a.timesCompleted || 0) + 1 };
-          } else if (resolution === 'swapped') {
-            return { ...a, status: 'active', proposedRevision: note };
-          }
-          return { ...a, status: 'pardoned', proposedRevision: note };
-        }
-        return a;
-      })
+      prev.map((a) =>
+        a.id === id
+          ? {
+              ...a,
+              status: 'triggered',
+              pendingAction,
+              pendingActionBy: currentUser.id,
+              pendingNote: note,
+              proposedRevision: note,
+            }
+          : a
+      )
     );
-    const nextStatus =
-      resolution === 'completed' ? 'completed' : resolution === 'swapped' ? 'active' : 'pardoned';
     try {
       await cloudSetDoc(
         doc(db, 'agreements', id),
         {
-          status: nextStatus,
+          status: 'triggered',
+          pendingAction,
+          pendingActionBy: currentUser.id,
+          pendingNote: note ?? null,
           proposedRevision: note ?? null,
           updatedAt: new Date().toISOString(),
         },
@@ -1326,6 +1420,49 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       );
     } catch (e) {
       console.warn('Firestore resolveSanction:', e);
+    }
+  };
+
+  // Partner decision on a relief/swap request.
+  const respondToPendingAction = async (id: string, approve: boolean) => {
+    const target = agreements.find((a) => a.id === id);
+    if (!target?.pendingAction) return;
+
+    const approveRelief = approve && target.pendingAction === 'relief';
+    const approveSwap = approve && target.pendingAction === 'swap';
+    const nextStatus: Agreement['status'] = approveRelief
+      ? 'pardoned'
+      : approveSwap
+      ? 'active'
+      : 'triggered';
+    const updates: Partial<Agreement> = {
+      status: nextStatus,
+      ...(approveSwap && target.pendingNote ? { title: target.pendingNote } : {}),
+      ...(approveRelief ? { timesPardoned: (target.timesPardoned || 0) + 1 } : {}),
+      updatedAt: new Date().toISOString(),
+    };
+
+    setAgreements((prev) =>
+      prev.map((a) =>
+        a.id === id
+          ? { ...a, ...updates, pendingAction: undefined, pendingActionBy: undefined, pendingNote: undefined }
+          : a
+      )
+    );
+
+    try {
+      await cloudSetDoc(
+        doc(db, 'agreements', id),
+        {
+          ...updates,
+          pendingAction: deleteField(),
+          pendingActionBy: deleteField(),
+          pendingNote: deleteField(),
+        },
+        { merge: true }
+      );
+    } catch (e) {
+      console.warn('Firestore respondToPendingAction:', e);
     }
   };
 
@@ -1356,16 +1493,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return true;
   };
 
-  // Record Nightly Check-in
+  // Record Nightly Check-in. One entry per user per day: editing it again must
+  // overwrite the same document and must not farm the +25 XP repeatedly.
   const recordCheckIn = async (checkInData: Omit<CheckIn, 'id' | 'createdAt'>) => {
-    const id = `chk_${Date.now()}`;
+    const existing = checkins.find(
+      (c) => c.userId === checkInData.userId && c.date === checkInData.date
+    );
+    const id = existing?.id ?? `chk_${checkInData.userId}_${checkInData.date}`;
     const newCheckIn: CheckIn = {
       ...checkInData,
       id,
-      createdAt: new Date().toISOString(),
+      createdAt: existing?.createdAt ?? new Date().toISOString(),
     };
-    setCheckins((prev) => [newCheckIn, ...prev.filter((c) => !(c.userId === newCheckIn.userId && c.date === newCheckIn.date))]);
-    await addCoupleXP(25);
+    setCheckins((prev) => [
+      newCheckIn,
+      ...prev.filter((c) => !(c.userId === newCheckIn.userId && c.date === newCheckIn.date)),
+    ]);
+    if (!existing) {
+      await addCoupleXP(25);
+    }
     sound.playHabitComplete();
     try {
       await cloudSetDoc(doc(db, 'checkins', id), newCheckIn);
@@ -1378,16 +1524,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const unlockDecoration = async (decorationId: IslandDecorationId): Promise<boolean> => {
     const targetDec = ISLAND_DECORATIONS.find((d) => d.id === decorationId);
     if (!targetDec) return false;
-    if (couple.levelXp < targetDec.xpCost) return false;
-    if (couple.unlockedDecorations.includes(decorationId)) return true;
+    const current = coupleRef.current;
+    if (current.levelXp < targetDec.xpCost) return false;
+    if (current.unlockedDecorations.includes(decorationId)) return true;
 
-    const nextDecorations = [...couple.unlockedDecorations, decorationId];
-    const nextXp = couple.levelXp - targetDec.xpCost;
-    setCouple((prev) => ({
-      ...prev,
-      levelXp: nextXp,
-      unlockedDecorations: nextDecorations,
-    }));
+    const nextDecorations = [...current.unlockedDecorations, decorationId];
+    const nextXp = current.levelXp - targetDec.xpCost;
+    const nextCouple = { ...current, levelXp: nextXp, unlockedDecorations: nextDecorations };
+    coupleRef.current = nextCouple;
+    setCouple(nextCouple);
     sound.playHabitComplete();
     fireConfetti({ particleCount: 60, spread: 80, origin: { y: 0.6 } });
     try {
@@ -1422,13 +1567,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Add couple XP. Levels only move forward; spending XP never demotes.
+  // coupleRef keeps back-to-back awards (habit + check-in) from overwriting each other.
   const addCoupleXP = async (amount: number) => {
-    const nextXp = Math.max(0, (couple.levelXp || 0) + amount);
-    const nextLevel = Math.max(couple.levelNumber || 1, Math.floor(nextXp / XP_PER_LEVEL) + 1);
-    setCouple((prev) => ({ ...prev, levelXp: nextXp, levelNumber: nextLevel }));
+    const base = coupleRef.current;
+    const nextXp = Math.max(0, (base.levelXp || 0) + amount);
+    const nextLevel = Math.max(base.levelNumber || 1, Math.floor(nextXp / XP_PER_LEVEL) + 1);
+    const nextCouple = { ...base, levelXp: nextXp, levelNumber: nextLevel };
+    coupleRef.current = nextCouple;
+    setCouple(nextCouple);
     try {
       await cloudSetDoc(
-        doc(db, 'couples', couple.id),
+        doc(db, 'couples', base.id),
         { levelXp: nextXp, levelNumber: nextLevel },
         { merge: true }
       );
@@ -1517,6 +1666,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     updateBook,
     deleteBook,
     addJournal,
+    updateJournal,
+    deleteJournal,
     toggleGraceDay,
     switchSimulatedUser,
     pairWithCode,
@@ -1530,6 +1681,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     createAgreement,
     approveAgreement,
     rejectAgreement,
+    triggerAgreement,
+    deleteAgreement,
+    respondToPendingAction,
     resolveSanction,
     useJokerCard,
     togglePauseAllSanctions,

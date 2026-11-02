@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Moon, Star, Heart, X, CheckCircle2, Sparkles, Calendar } from 'lucide-react';
+import { Moon, X, CheckCircle2 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { getTodayDateString } from '../data/mockData';
 import { useDialog } from '../hooks/useDialog';
@@ -10,12 +10,6 @@ interface NightlyCheckInModalProps {
 
 export const NightlyCheckInModal: React.FC<NightlyCheckInModalProps> = ({ onClose }) => {
   const { currentUser, partnerUser, couple, checkins, recordCheckIn } = useApp();
-  const [mood, setMood] = useState<number>(5);
-  const [gratitude, setGratitude] = useState<string>('');
-  const [isShared, setIsShared] = useState<boolean>(true);
-  const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
-  const dialogRef = useDialog<HTMLDivElement>(true, onClose);
-
   const todayStr = getTodayDateString();
 
   // Check if current user already checked in today
@@ -26,6 +20,12 @@ export const NightlyCheckInModal: React.FC<NightlyCheckInModalProps> = ({ onClos
   const partnerTodayCheckIn = checkins.find(
     (c) => c.userId === partnerUser?.id && c.date === todayStr && c.isShared
   );
+
+  const [mood, setMood] = useState<number>(existingTodayCheckIn?.mood ?? 5);
+  const [gratitude, setGratitude] = useState<string>(existingTodayCheckIn?.gratitude ?? '');
+  const [isShared, setIsShared] = useState<boolean>(existingTodayCheckIn?.isShared ?? true);
+  const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
+  const dialogRef = useDialog<HTMLDivElement>(true, onClose);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,16 +65,18 @@ export const NightlyCheckInModal: React.FC<NightlyCheckInModalProps> = ({ onClos
             </div>
             <div>
               <h3 className="text-base font-bold text-stone-900 dark:text-stone-100">
-                Check-in Malam Pasangan
+                {existingTodayCheckIn ? 'Ubah Check-in Malam' : 'Check-in Malam Pasangan'}
               </h3>
               <p className="text-xs text-stone-500 dark:text-stone-400">
-                1 menit kehangatan sebelum tidur
+                {existingTodayCheckIn
+                  ? 'Kamu sudah check-in hari ini. Perbarui refleksimu kapan saja.'
+                  : '1 menit kehangatan sebelum tidur'}
               </p>
             </div>
           </div>
           <button type="button"
             onClick={onClose}
-            className="p-1 rounded-lg text-stone-500 hover:text-stone-700 dark:hover:text-stone-200"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center p-1 rounded-lg text-stone-500 hover:text-stone-700 dark:hover:text-stone-200"
           >
             <X className="w-4 h-4" />
           </button>
@@ -99,7 +101,7 @@ export const NightlyCheckInModal: React.FC<NightlyCheckInModalProps> = ({ onClos
           <div className="p-8 text-center space-y-2">
             <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto" />
             <h4 className="text-sm font-bold text-stone-900 dark:text-stone-100">
-              Check-in Malam Tersimpan!
+              {existingTodayCheckIn ? 'Check-in Malam Diperbarui!' : 'Check-in Malam Tersimpan!'}
             </h4>
             <p className="text-xs text-stone-500">
               Semoga tidurmu nyenyak dan besok bangun dengan semangat baru bersama pasangan.
@@ -178,7 +180,7 @@ export const NightlyCheckInModal: React.FC<NightlyCheckInModalProps> = ({ onClos
                 type="submit"
                 className="px-5 py-2 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-medium hover:opacity-90"
               >
-                Simpan Refleksi
+                {existingTodayCheckIn ? 'Perbarui Refleksi' : 'Simpan Refleksi'}
               </button>
             </div>
           </form>

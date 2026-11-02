@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AlertCircle, CheckCircle2, HeartHandshake, Shuffle, Ticket, X, Sparkles } from 'lucide-react';
+import { AlertCircle, CheckCircle2, HeartHandshake, Shuffle, Ticket, X } from 'lucide-react';
 import { Agreement } from '../types';
 import { useApp } from '../context/AppContext';
 import { useDialog } from '../hooks/useDialog';
@@ -18,6 +18,7 @@ export const SanctionActionModal: React.FC<SanctionActionModalProps> = ({
   const [replacementProposal, setReplacementProposal] = useState('');
   const [reliefReason, setReliefReason] = useState('');
   const [isDone, setIsDone] = useState(false);
+  const [doneMessage, setDoneMessage] = useState('');
   const dialogRef = useDialog<HTMLDivElement>(true, onClose);
 
   // Joker card remaining for current user
@@ -26,28 +27,32 @@ export const SanctionActionModal: React.FC<SanctionActionModalProps> = ({
 
   const handleComplete = async () => {
     await resolveSanction(agreement.id, 'completed');
+    setDoneMessage('Sanksi ditandai sudah dijalankan. Pasanganmu menerima konfirmasinya.');
     setIsDone(true);
-    setTimeout(() => onClose(), 1200);
+    setTimeout(() => onClose(), 1400);
   };
 
   const handleUseJoker = async () => {
     if (userJokers <= 0) return;
     await useJokerCard(agreement.id);
+    setDoneMessage('Kartu maaf terpakai. Sanksi ini dibatalkan dengan baik.');
     setIsDone(true);
-    setTimeout(() => onClose(), 1200);
+    setTimeout(() => onClose(), 1400);
   };
 
   const handleRequestRelief = async () => {
     await resolveSanction(agreement.id, 'relief_requested', reliefReason);
+    setDoneMessage('Permintaan keringanan terkirim dan menunggu persetujuan pasangan.');
     setIsDone(true);
-    setTimeout(() => onClose(), 1200);
+    setTimeout(() => onClose(), 1800);
   };
 
   const handleSwapChallenge = async () => {
     if (!replacementProposal.trim()) return;
     await resolveSanction(agreement.id, 'swapped', replacementProposal.trim());
+    setDoneMessage('Usulan tantangan pengganti terkirim dan menunggu persetujuan pasangan.');
     setIsDone(true);
-    setTimeout(() => onClose(), 1200);
+    setTimeout(() => onClose(), 1800);
   };
 
   return (
@@ -71,7 +76,7 @@ export const SanctionActionModal: React.FC<SanctionActionModalProps> = ({
           </div>
           <button type="button"
             onClick={onClose}
-            className="p-1 rounded-lg text-stone-500 hover:text-stone-700 dark:hover:text-stone-200"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center p-1 rounded-lg text-stone-500 hover:text-stone-700 dark:hover:text-stone-200"
           >
             <X className="w-4 h-4" />
           </button>
@@ -96,9 +101,9 @@ export const SanctionActionModal: React.FC<SanctionActionModalProps> = ({
           <div className="p-6 text-center space-y-2">
             <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
             <h4 className="text-sm font-bold text-stone-900 dark:text-stone-100">
-              Aksi Berhasil Diproses!
+              {doneMessage.includes('menunggu') ? 'Terkirim ke Pasangan' : 'Aksi Berhasil Diproses'}
             </h4>
-            <p className="text-xs text-stone-500">Pembaruan telah dikirimkan ke pasanganmu.</p>
+            <p className="text-xs text-stone-500">{doneMessage}</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -147,7 +152,7 @@ export const SanctionActionModal: React.FC<SanctionActionModalProps> = ({
                     <span className="text-xs font-bold text-stone-900 dark:text-stone-100 block">
                       Minta Keringanan
                     </span>
-                    <span className="text-[11px] text-stone-500">Ajukan alasan ke pasangan</span>
+                    <span className="text-[11px] text-stone-500">Ajukan, pasangan yang memutuskan</span>
                   </div>
                 </button>
 
@@ -161,7 +166,7 @@ export const SanctionActionModal: React.FC<SanctionActionModalProps> = ({
                     <span className="text-xs font-bold text-stone-900 dark:text-stone-100 block">
                       Tukar Tantangan Baru
                     </span>
-                    <span className="text-[11px] text-stone-500">Usulkan aktivitas lain</span>
+                    <span className="text-[11px] text-stone-500">Usulan menunggu persetujuan</span>
                   </div>
                 </button>
               </div>

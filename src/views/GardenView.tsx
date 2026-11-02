@@ -18,7 +18,7 @@ import {
 import { Garden2DFallback } from '../components/Garden2DFallback';
 import { DecorationShopModal } from '../components/DecorationShopModal';
 import { useApp } from '../context/AppContext';
-import { NEUROSCIENCE_INSIGHTS } from '../data/mockData';
+import { NEUROSCIENCE_INSIGHTS, getTodayDateString } from '../data/mockData';
 import { TimeOfDay, WeatherType } from '../types/index';
 
 const ThreeGarden = lazy(() =>
@@ -38,12 +38,13 @@ export const GardenView: React.FC = () => {
   const [is3DMode, setIs3DMode] = useState<boolean>(true);
   const [isShopModalOpen, setIsShopModalOpen] = useState<boolean>(false);
 
-  // Count completions
+  // Count only today's completions; older logs should not light up the garden forever.
+  const today = getTodayDateString();
   const completedTodayUser = logs.filter(
-    (l) => l.userId === currentUser.id && l.completed
+    (l) => l.userId === currentUser.id && l.date === today && l.completed
   ).length;
   const completedTodayPartner = logs.filter(
-    (l) => l.userId === partnerUser?.id && l.completed
+    (l) => l.userId === partnerUser?.id && l.date === today && l.completed
   ).length;
 
   const filteredInsights = activeTopic === 'all'
@@ -71,7 +72,7 @@ export const GardenView: React.FC = () => {
           <div className="flex items-center p-1 rounded-xl bg-stone-100 dark:bg-stone-800 text-xs">
             <button type="button"
               onClick={() => setIs3DMode(true)}
-              className={`px-2.5 py-1 rounded-lg font-semibold transition-all ${
+              className={`min-h-[44px] px-2.5 py-1 rounded-lg font-semibold transition-all ${
                 is3DMode
                   ? 'bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 shadow-xs'
                   : 'text-stone-500 hover:text-stone-900 dark:hover:text-stone-100'
@@ -81,7 +82,7 @@ export const GardenView: React.FC = () => {
             </button>
             <button type="button"
               onClick={() => setIs3DMode(false)}
-              className={`px-2.5 py-1 rounded-lg font-semibold transition-all ${
+              className={`min-h-[44px] px-2.5 py-1 rounded-lg font-semibold transition-all ${
                 !is3DMode
                   ? 'bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 shadow-xs'
                   : 'text-stone-500 hover:text-stone-900 dark:hover:text-stone-100'
@@ -94,7 +95,7 @@ export const GardenView: React.FC = () => {
           {/* Toko Dekorasi Trigger */}
           <button type="button"
             onClick={() => setIsShopModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700 text-xs font-semibold shadow-xs transition-colors"
+            className="flex items-center gap-1.5 min-h-[44px] px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700 text-xs font-semibold shadow-xs transition-colors"
           >
             <Trees className="w-3.5 h-3.5 text-amber-500" />
             <span>Toko Dekorasi ({couple.levelXp} XP)</span>
@@ -111,7 +112,7 @@ export const GardenView: React.FC = () => {
             <button type="button"
               key={t}
               onClick={() => setTimeOfDay(t)}
-              className={`px-2.5 py-1 rounded-lg capitalize font-medium transition-colors ${
+              className={`min-h-[44px] px-2.5 py-1 rounded-lg capitalize font-medium transition-colors ${
                 couple.selectedTimeOfDay === t
                   ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900 font-bold'
                   : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
@@ -129,7 +130,7 @@ export const GardenView: React.FC = () => {
             <button type="button"
               key={w}
               onClick={() => setWeather(w)}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-colors ${
+              className={`min-h-[44px] px-2.5 py-1 rounded-lg font-medium transition-colors ${
                 couple.selectedWeather === w
                   ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900 font-bold'
                   : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
@@ -192,7 +193,7 @@ export const GardenView: React.FC = () => {
           <div className="flex items-center gap-1 p-1 bg-stone-100 dark:bg-stone-800 rounded-xl overflow-x-auto">
             <button type="button"
               onClick={() => setActiveTopic('all')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
+              className={`min-h-[44px] px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
                 activeTopic === 'all'
                   ? 'bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 shadow-xs'
                   : 'text-stone-600 dark:text-stone-400 hover:text-stone-900'
@@ -202,7 +203,7 @@ export const GardenView: React.FC = () => {
             </button>
             <button type="button"
               onClick={() => setActiveTopic('dopamine')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
+              className={`min-h-[44px] px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
                 activeTopic === 'dopamine'
                   ? 'bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 shadow-xs'
                   : 'text-stone-600 dark:text-stone-400 hover:text-stone-900'
@@ -212,7 +213,7 @@ export const GardenView: React.FC = () => {
             </button>
             <button type="button"
               onClick={() => setActiveTopic('habit-loop')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
+              className={`min-h-[44px] px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
                 activeTopic === 'habit-loop'
                   ? 'bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 shadow-xs'
                   : 'text-stone-600 dark:text-stone-400 hover:text-stone-900'
@@ -222,7 +223,7 @@ export const GardenView: React.FC = () => {
             </button>
             <button type="button"
               onClick={() => setActiveTopic('circadian')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
+              className={`min-h-[44px] px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
                 activeTopic === 'circadian'
                   ? 'bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 shadow-xs'
                   : 'text-stone-600 dark:text-stone-400 hover:text-stone-900'
@@ -232,7 +233,7 @@ export const GardenView: React.FC = () => {
             </button>
             <button type="button"
               onClick={() => setActiveTopic('co-regulation')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
+              className={`min-h-[44px] px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
                 activeTopic === 'co-regulation'
                   ? 'bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 shadow-xs'
                   : 'text-stone-600 dark:text-stone-400 hover:text-stone-900'

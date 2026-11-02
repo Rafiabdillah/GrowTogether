@@ -50,14 +50,14 @@ export const CoupleSimulatorToolbar: React.FC = () => {
             <div className="flex items-center gap-1">
               <button type="button"
                 onClick={toggleSimulatorToolbar}
-                className="text-[11px] text-stone-500 hover:text-stone-600 px-1.5 py-0.5 rounded hover:bg-stone-100 dark:hover:bg-stone-800"
+                className="min-h-[44px] min-w-[44px] flex items-center justify-center text-[11px] text-stone-500 hover:text-stone-600 px-1.5 py-0.5 rounded hover:bg-stone-100 dark:hover:bg-stone-800"
                 title="Sembunyikan toolbar ini (bisa diaktifkan lagi di Pengaturan)"
               >
                 Tutup
               </button>
               <button type="button"
                 onClick={() => setIsOpen(false)}
-                className="p-1 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 hover:text-stone-700"
+                className="min-h-[44px] min-w-[44px] flex items-center justify-center p-1 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 hover:text-stone-700"
               >
                 <ChevronDown className="w-4 h-4" />
               </button>
@@ -69,7 +69,7 @@ export const CoupleSimulatorToolbar: React.FC = () => {
             {/* 1. Switch User */}
             <button type="button"
               onClick={switchSimulatedUser}
-              className="w-full flex items-center justify-between p-2 rounded-xl bg-stone-50 dark:bg-stone-850 hover:bg-stone-100 dark:hover:bg-stone-800 border border-stone-200/60 dark:border-stone-700/60 transition-colors"
+              className="w-full min-h-[44px] flex items-center justify-between p-2 rounded-xl bg-stone-50 dark:bg-stone-850 hover:bg-stone-100 dark:hover:bg-stone-800 border border-stone-200/60 dark:border-stone-700/60 transition-colors"
             >
               <div className="flex items-center gap-2">
                 <Users className="w-3.5 h-3.5 text-stone-500" />
@@ -84,7 +84,7 @@ export const CoupleSimulatorToolbar: React.FC = () => {
             <div className="flex items-center gap-1.5">
               <button type="button"
                 onClick={advanceSimulatedDay}
-                className="flex-1 flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-stone-50 dark:bg-stone-850 hover:bg-stone-100 dark:hover:bg-stone-800 border border-stone-200/60 dark:border-stone-700/60 transition-colors"
+                className="flex-1 flex items-center justify-center gap-1.5 min-h-[44px] py-2 px-2.5 rounded-xl bg-stone-50 dark:bg-stone-850 hover:bg-stone-100 dark:hover:bg-stone-800 border border-stone-200/60 dark:border-stone-700/60 transition-colors"
                 title="Maju 1 hari untuk mengetes streak dan reset checklist harian"
               >
                 <FastForward className="w-3.5 h-3.5 text-emerald-500" />
@@ -94,7 +94,7 @@ export const CoupleSimulatorToolbar: React.FC = () => {
               {isDateShifted && (
                 <button type="button"
                   onClick={() => setSelectedDate(realToday)}
-                  className="flex items-center gap-1 py-2 px-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 transition-colors"
+                  className="flex items-center gap-1 min-h-[44px] py-2 px-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 transition-colors"
                   title="Kembali ke hari nyata ini"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
@@ -114,7 +114,7 @@ export const CoupleSimulatorToolbar: React.FC = () => {
             {/* 3. High-Five Simulation */}
             <button type="button"
               onClick={triggerSimulatedHighFive}
-              className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-amber-50 dark:bg-stone-900 border border-amber-300/60 dark:border-amber-700/60 hover:opacity-90 font-semibold text-amber-800 dark:text-amber-200 transition-all shadow-xs"
+              className="w-full flex items-center justify-center gap-1.5 min-h-[44px] py-2 px-3 rounded-xl bg-amber-50 dark:bg-stone-900 border border-amber-300/60 dark:border-amber-700/60 hover:opacity-90 font-semibold text-amber-800 dark:text-amber-200 transition-all shadow-xs"
             >
               <Sparkles className="w-3.5 h-3.5 text-amber-500" />
               <span>Simulasi High-Five & Konfeti</span>
@@ -123,7 +123,7 @@ export const CoupleSimulatorToolbar: React.FC = () => {
             {/* 4. Add Couple XP */}
             <button type="button"
               onClick={() => addCoupleXP(100)}
-              className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-stone-50 dark:bg-stone-850 hover:bg-stone-100 dark:hover:bg-stone-800 border border-stone-200/60 dark:border-stone-700/60 transition-colors font-medium text-stone-700 dark:text-stone-300"
+              className="w-full flex items-center justify-center gap-1.5 min-h-[44px] py-2 px-3 rounded-xl bg-stone-50 dark:bg-stone-850 hover:bg-stone-100 dark:hover:bg-stone-800 border border-stone-200/60 dark:border-stone-700/60 transition-colors font-medium text-stone-700 dark:text-stone-300"
             >
               <PlusCircle className="w-3.5 h-3.5 text-emerald-500" />
               <span>+100 XP Pasangan ({couple.levelXp} XP)</span>
@@ -133,7 +133,7 @@ export const CoupleSimulatorToolbar: React.FC = () => {
       ) : (
         <button type="button"
           onClick={() => setIsOpen(true)}
-          className="flex items-center gap-2 px-3.5 py-2 rounded-full bg-stone-900/90 dark:bg-stone-100/90 text-white dark:text-stone-900 text-xs font-semibold shadow-lg hover:scale-105 active:scale-95 transition-transform border border-white/20 dark:border-stone-800"
+          className="flex items-center gap-2 min-h-[44px] px-3.5 py-2 rounded-full bg-stone-900/90 dark:bg-stone-100/90 text-white dark:text-stone-900 text-xs font-semibold shadow-lg hover:scale-105 active:scale-95 transition-transform border border-white/20 dark:border-stone-800"
           title="Buka Simulator Pasangan untuk Pengujian Cepat"
         >
           <Wand2 className="w-3.5 h-3.5 text-amber-400 dark:text-amber-600" />

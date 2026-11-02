@@ -1,5 +1,5 @@
-import React from 'react';
-import { Sparkles, X, Check, Lock, Coins, Trees, Palmtree } from 'lucide-react';
+import React, { useState } from 'react';
+import { Sparkles, X, Check, Lock, Coins, Trees } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { ISLAND_DECORATIONS } from '../data/mockData';
 import { IslandDecorationId } from '../types';
@@ -12,10 +12,17 @@ interface DecorationShopModalProps {
 export const DecorationShopModal: React.FC<DecorationShopModalProps> = ({ onClose }) => {
   const { couple, unlockDecoration } = useApp();
   const dialogRef = useDialog<HTMLDivElement>(true, onClose);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   const handleUnlock = async (id: IslandDecorationId, cost: number) => {
-    if (couple.levelXp < cost) return;
-    await unlockDecoration(id);
+    if (couple.levelXp < cost) {
+      setStatusMessage('XP belum cukup. Selesaikan habit atau sesi fokus dulu.');
+      return;
+    }
+    const unlocked = await unlockDecoration(id);
+    setStatusMessage(
+      unlocked ? 'Dekorasi terpasang di pulau kalian!' : 'Dekorasi gagal dibuka. Coba lagi.'
+    );
   };
 
   return (
@@ -38,7 +45,7 @@ export const DecorationShopModal: React.FC<DecorationShopModalProps> = ({ onClos
           </div>
           <button type="button"
             onClick={onClose}
-            className="p-1.5 rounded-xl hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 transition-colors"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center p-1.5 rounded-xl hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -136,8 +143,13 @@ export const DecorationShopModal: React.FC<DecorationShopModalProps> = ({ onClos
         </div>
 
         {/* Footer Note */}
+        {statusMessage && (
+          <p role="status" className="mt-4 text-xs font-medium text-emerald-700 dark:text-emerald-300 text-center">
+            {statusMessage}
+          </p>
+        )}
         <p className="text-[11px] text-stone-500 dark:text-stone-400 text-center mt-5">
-          Tiap habit yang diselesaikan berdua menyumbang +15 XP. Sesi fokus dan streak mingguan memberikan bonus ekstra!
+          Tiap habit selesai memberi +10 XP, sesi fokus +10 XP, dan check-in malam +25 XP.
         </p>
       </div>
     </div>

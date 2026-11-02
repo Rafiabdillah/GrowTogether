@@ -233,14 +233,14 @@ export const ThreeGarden: React.FC<ThreeGardenProps> = ({
       <div className="absolute top-4 right-4 z-10 flex items-center gap-1.5">
         <button type="button"
           onClick={resetCamera}
-          className="p-2 rounded-xl bg-white/80 dark:bg-stone-800/80 border border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white shadow-xs transition-colors"
+          className="min-h-[44px] min-w-[44px] flex items-center justify-center p-2 rounded-xl bg-white/80 dark:bg-stone-800/80 border border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white shadow-xs transition-colors"
           title="Reset Sudut Kamera"
         >
           <RotateCcw className="w-4 h-4" />
         </button>
         <button type="button"
           onClick={() => setIsRotating((prev) => !prev)}
-          className={`px-3 py-1.5 rounded-xl text-xs font-medium border shadow-xs transition-colors ${
+          className={`min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-medium border shadow-xs transition-colors ${
             isRotating
               ? 'bg-amber-500/10 border-amber-300 dark:border-amber-600 text-amber-800 dark:text-amber-200'
               : 'bg-white/80 dark:bg-stone-800/80 border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-300'
@@ -260,7 +260,7 @@ export const ThreeGarden: React.FC<ThreeGardenProps> = ({
           {/* Collapse/Expand Toggle Tab */}
           <button type="button"
             onClick={() => setIsCollapsed((prev) => !prev)}
-            className="flex items-center gap-1 px-3 py-1 rounded-t-lg bg-stone-900/90 dark:bg-stone-100/90 text-white dark:text-stone-900 text-[11px] font-medium shadow-sm transition-transform hover:scale-105"
+            className="flex items-center gap-1 min-h-[44px] px-3 py-1 rounded-t-lg bg-stone-900/90 dark:bg-stone-100/90 text-white dark:text-stone-900 text-[11px] font-medium shadow-sm transition-transform hover:scale-105"
           >
             {isCollapsed ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
             <span>{isCollapsed ? 'Pilihan Tema 3D' : 'Sembunyikan'}</span>
@@ -271,7 +271,7 @@ export const ThreeGarden: React.FC<ThreeGardenProps> = ({
             <div className="w-full p-2 rounded-2xl bg-white/95 dark:bg-stone-900/95 border border-stone-200 dark:border-stone-800 shadow-xl flex items-center justify-between gap-1">
               <button type="button"
                 onClick={() => setCurrentTheme('island')}
-                className={`flex-1 flex items-center justify-center gap-1 py-2 px-2 rounded-xl text-xs font-medium transition-all ${
+                className={`flex-1 flex items-center justify-center gap-1 min-h-[44px] py-2 px-2 rounded-xl text-xs font-medium transition-all ${
                   currentTheme === 'island'
                     ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900 shadow-xs'
                     : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
@@ -283,7 +283,7 @@ export const ThreeGarden: React.FC<ThreeGardenProps> = ({
 
               <button type="button"
                 onClick={() => setCurrentTheme('bonsai')}
-                className={`flex-1 flex items-center justify-center gap-1 py-2 px-2 rounded-xl text-xs font-medium transition-all ${
+                className={`flex-1 flex items-center justify-center gap-1 min-h-[44px] py-2 px-2 rounded-xl text-xs font-medium transition-all ${
                   currentTheme === 'bonsai'
                     ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900 shadow-xs'
                     : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
@@ -295,7 +295,7 @@ export const ThreeGarden: React.FC<ThreeGardenProps> = ({
 
               <button type="button"
                 onClick={() => setCurrentTheme('galaxy')}
-                className={`flex-1 flex items-center justify-center gap-1 py-2 px-2 rounded-xl text-xs font-medium transition-all ${
+                className={`flex-1 flex items-center justify-center gap-1 min-h-[44px] py-2 px-2 rounded-xl text-xs font-medium transition-all ${
                   currentTheme === 'galaxy'
                     ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900 shadow-xs'
                     : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
@@ -307,7 +307,7 @@ export const ThreeGarden: React.FC<ThreeGardenProps> = ({
 
               <button type="button"
                 onClick={() => setCurrentTheme('desk')}
-                className={`flex-1 flex items-center justify-center gap-1 py-2 px-2 rounded-xl text-xs font-medium transition-all ${
+                className={`flex-1 flex items-center justify-center gap-1 min-h-[44px] py-2 px-2 rounded-xl text-xs font-medium transition-all ${
                   currentTheme === 'desk'
                     ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900 shadow-xs'
                     : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'

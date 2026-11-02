@@ -40,10 +40,29 @@ export const PairingView: React.FC = () => {
   };
 
   const copyInviteCode = () => {
-    if (currentUser.inviteCode) {
-      navigator.clipboard.writeText(currentUser.inviteCode);
+    if (!currentUser.inviteCode) return;
+    const markCopied = () => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(currentUser.inviteCode).then(markCopied).catch(() => {
+        setError('Gagal menyalin. Catat kodenya secara manual.');
+      });
+    } else {
+      try {
+        const area = document.createElement('textarea');
+        area.value = currentUser.inviteCode;
+        area.style.position = 'fixed';
+        area.style.opacity = '0';
+        document.body.appendChild(area);
+        area.select();
+        document.execCommand('copy');
+        document.body.removeChild(area);
+        markCopied();
+      } catch {
+        setError('Gagal menyalin. Catat kodenya secara manual.');
+      }
     }
   };
 

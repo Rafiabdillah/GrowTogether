@@ -29,6 +29,8 @@ const THEME_OPTIONS: { id: ColorTheme; label: string; bgClass: string }[] = [
 export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClose }) => {
   const {
     currentUser,
+    partnerUser,
+    isDemoMode,
     updateUserProfile,
     pairWithCode,
     resetToEmptyState,
@@ -48,10 +50,32 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClos
 
   const handleCopyCode = () => {
     const code = currentUser.inviteCode || 'GROW-2026';
+    const fallbackCopy = () => {
+      try {
+        const area = document.createElement('textarea');
+        area.value = code;
+        area.style.position = 'fixed';
+        area.style.opacity = '0';
+        document.body.appendChild(area);
+        area.select();
+        document.execCommand('copy');
+        document.body.removeChild(area);
+        setCopiedCode(true);
+        setTimeout(() => setCopiedCode(false), 2000);
+      } catch {
+        setPairError('Gagal menyalin. Catat kodenya secara manual.');
+      }
+    };
     if (navigator?.clipboard?.writeText) {
-      navigator.clipboard.writeText(code);
-      setCopiedCode(true);
-      setTimeout(() => setCopiedCode(false), 2000);
+      navigator.clipboard
+        .writeText(code)
+        .then(() => {
+          setCopiedCode(true);
+          setTimeout(() => setCopiedCode(false), 2000);
+        })
+        .catch(fallbackCopy);
+    } else {
+      fallbackCopy();
     }
   };
 
@@ -88,7 +112,9 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClos
   };
 
   const handleFinishClean = () => {
-    resetToEmptyState();
+    if (isDemoMode) {
+      resetToEmptyState();
+    }
     onClose();
   };
 
@@ -110,7 +136,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClos
           </div>
           <button type="button"
             onClick={onClose}
-            className="text-stone-500 hover:text-stone-700 dark:hover:text-stone-200 p-1 rounded-lg"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center text-stone-500 hover:text-stone-700 dark:hover:text-stone-200 p-1 rounded-lg"
           >
             <X className="w-4 h-4" />
           </button>
@@ -202,6 +228,21 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClos
                 </p>
               </div>
 
+              {partnerUser ? (
+                <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 text-center space-y-2">
+                  <p className="text-xs text-stone-700 dark:text-stone-300">
+                    Kalian sudah terhubung dengan <strong>{partnerUser.displayName}</strong>.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setStep(3)}
+                    className="min-h-[44px] px-4 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold"
+                  >
+                    Lanjut
+                  </button>
+                </div>
+              ) : (
+                <>
               {/* Share box */}
               <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700">
                 <span className="text-[11px] font-bold text-stone-500 uppercase tracking-wider block mb-1">
@@ -254,6 +295,8 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClos
                   </button>
                 </div>
               </form>
+                </>
+              )}
             </div>
           )}
 
@@ -291,6 +334,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClos
               </button>
 
               {/* Option B: Coba Data Demo */}
+              {isDemoMode && (
               <button type="button"
                 onClick={handleFinishDemo}
                 className="w-full p-4 rounded-2xl border border-stone-200 dark:border-stone-800 hover:border-stone-400 text-left transition-all flex items-start gap-3 bg-stone-50 dark:bg-stone-850"
@@ -307,6 +351,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClos
                   </p>
                 </div>
               </button>
+              )}
             </div>
           )}
         </div>

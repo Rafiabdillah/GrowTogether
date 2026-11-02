@@ -18,10 +18,12 @@ import {
   Trash2,
   AlertCircle,
   Users,
+  Pencil,
+  Repeat,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { HabitCategory } from '../types/index';
-import { XP_PER_LEVEL, getTodayDateString, toLocalDateString } from '../data/mockData';
+import { Habit, HabitCategory } from '../types/index';
+import { XP_PER_LEVEL, toLocalDateString } from '../data/mockData';
 import { AppleWatchRings } from '../components/AppleWatchRings';
 import { useDialog } from '../hooks/useDialog';
 
@@ -30,6 +32,12 @@ const ThreeGarden = lazy(() =>
 );
 
 const JOINT_FOCUS_TARGET_MINUTES = 30;
+
+const FREQUENCY_LABELS: Record<Habit['frequency'], string> = {
+  daily: 'Setiap hari',
+  weekdays: 'Senin–Jumat',
+  weekends: 'Sabtu–Minggu',
+};
 
 const HABIT_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   BookOpen,
@@ -61,6 +69,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
     setSelectedDate,
     toggleHabit,
     addHabit,
+    editHabit,
     deleteHabit,
     sendReaction,
     toggleGraceDay,
@@ -72,23 +81,31 @@ export const TodayView: React.FC<TodayViewProps> = ({
     () => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches
   );
   const addDialogRef = useDialog<HTMLDivElement>(isAddModalOpen, () => setIsAddModalOpen(false));
+  const [editingHabitId, setEditingHabitId] = useState<string | null>(null);
   const [newTitle, setNewTitle] = useState('');
   const [newCategory, setNewCategory] = useState<HabitCategory>('kustom');
   const [newMinutes, setNewMinutes] = useState<number>(0);
+  const [newFrequency, setNewFrequency] = useState<Habit['frequency']>('daily');
   const [newIsShared, setNewIsShared] = useState(true);
   const [newIsPrivate, setNewIsPrivate] = useState(false);
 
-  const todayStr = getTodayDateString();
+  const selectedWeekday = new Date(`${selectedDate}T12:00:00`).getDay();
+  const isScheduledForDate = (habit: Habit) => {
+    if (habit.frequency === 'weekdays') return selectedWeekday >= 1 && selectedWeekday <= 5;
+    if (habit.frequency === 'weekends') return selectedWeekday === 0 || selectedWeekday === 6;
+    return true;
+  };
 
   // Habits you can tick: your own plus shared ones (each partner keeps their own log).
   const myHabits = habits.filter(
     (h) =>
+      isScheduledForDate(h) &&
       (!h.isPrivate || h.ownerId === currentUser.id) &&
       (h.ownerId === currentUser.id || h.isShared)
   );
   // Partner's personal habits are visible to you but read-only.
   const partnerOnlyHabits = habits.filter(
-    (h) => h.ownerId === partnerUser?.id && !h.isShared && !h.isPrivate
+    (h) => h.ownerId === partnerUser?.id && !h.isShared && !h.isPrivate && isScheduledForDate(h)
   );
 
   const userLogsForDate = logs.filter(
@@ -135,6 +152,28 @@ export const TodayView: React.FC<TodayViewProps> = ({
     };
   });
 
+  const openCreateHabit = () => {
+    setEditingHabitId(null);
+    setNewTitle('');
+    setNewCategory('kustom');
+    setNewMinutes(0);
+    setNewFrequency('daily');
+    setNewIsShared(true);
+    setNewIsPrivate(false);
+    setIsAddModalOpen(true);
+  };
+
+  const openEditHabit = (habit: Habit) => {
+    setEditingHabitId(habit.id);
+    setNewTitle(habit.title);
+    setNewCategory(habit.category);
+    setNewMinutes(habit.targetMinutes);
+    setNewFrequency(habit.frequency);
+    setNewIsShared(habit.isShared);
+    setNewIsPrivate(habit.isPrivate);
+    setIsAddModalOpen(true);
+  };
+
   const handleCreateHabit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
@@ -145,21 +184,32 @@ export const TodayView: React.FC<TodayViewProps> = ({
     else if (newCategory === 'kesehatan') icon = 'Droplets';
     else if (newCategory === 'spiritual') icon = 'HeartHandshake';
 
-    await addHabit({
-      coupleId: (couple as any)?.id || '',
-      ownerId: currentUser.id,
-      title: newTitle.trim(),
-      icon,
-      category: newCategory,
-      targetMinutes: Number(newMinutes) || 0,
-      frequency: 'daily',
-      isShared: newIsShared,
-      isPrivate: newIsPrivate,
-    });
+    if (editingHabitId) {
+      await editHabit(editingHabitId, {
+        title: newTitle.trim(),
+        icon,
+        category: newCategory,
+        targetMinutes: Number(newMinutes) || 0,
+        frequency: newFrequency,
+        isShared: newIsShared,
+        isPrivate: newIsPrivate,
+      });
+    } else {
+      await addHabit({
+        coupleId: couple.id || '',
+        ownerId: currentUser.id,
+        title: newTitle.trim(),
+        icon,
+        category: newCategory,
+        targetMinutes: Number(newMinutes) || 0,
+        frequency: newFrequency,
+        isShared: newIsShared,
+        isPrivate: newIsPrivate,
+      });
+    }
 
-    setNewTitle('');
-    setNewMinutes(0);
     setIsAddModalOpen(false);
+    setEditingHabitId(null);
   };
 
   const isBothCompletedAll =
@@ -408,7 +458,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
           </div>
           <button
             type="button"
-            onClick={() => setIsAddModalOpen(true)}
+            onClick={openCreateHabit}
             className="min-h-[44px] flex items-center gap-1.5 px-4 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-medium hover:opacity-90 active:scale-98 transition-opacity"
           >
             <Plus className="w-4 h-4" aria-hidden="true" />
@@ -504,7 +554,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
             <div className="pt-2">
               <button
                 type="button"
-                onClick={() => setIsAddModalOpen(true)}
+                onClick={openCreateHabit}
                 className="min-h-[44px] px-4 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-bold hover:opacity-90 transition-opacity"
               >
                 + Buat kebiasaan sendiri
@@ -572,7 +622,17 @@ export const TodayView: React.FC<TodayViewProps> = ({
                           <span>{habit.targetMinutes} menit</span>
                         </span>
                       ) : (
-                        <span>Checklist harian</span>
+                        <span>Checklist</span>
+                      )}
+
+                      {habit.frequency !== 'daily' && (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <span className="flex items-center gap-1 text-[11px]">
+                            <Repeat className="w-3 h-3" aria-hidden="true" />
+                            {FREQUENCY_LABELS[habit.frequency]}
+                          </span>
+                        </>
                       )}
 
                       {habit.isShared && (
@@ -605,6 +665,17 @@ export const TodayView: React.FC<TodayViewProps> = ({
                     >
                       <Timer className="w-4 h-4" aria-hidden="true" />
                       <span className="hidden sm:inline">Mulai timer</span>
+                    </button>
+                  )}
+
+                  {habit.ownerId === currentUser.id && (
+                    <button
+                      type="button"
+                      onClick={() => openEditHabit(habit)}
+                      aria-label={`Ubah habit: ${habit.title}`}
+                      className="min-h-[44px] min-w-[44px] flex items-center justify-center text-stone-500 hover:text-amber-700 dark:hover:text-amber-400 transition-colors"
+                    >
+                      <Pencil className="w-4 h-4" aria-hidden="true" />
                     </button>
                   )}
 
@@ -713,10 +784,12 @@ export const TodayView: React.FC<TodayViewProps> = ({
             className="w-full max-w-md max-h-[90dvh] overflow-y-auto rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 p-6 shadow-2xl text-stone-800 dark:text-stone-100"
           >
             <h3 id="add-habit-title" className="text-lg font-bold text-stone-900 dark:text-stone-100">
-              Buat habit baru
+              {editingHabitId ? 'Ubah habit' : 'Buat habit baru'}
             </h3>
             <p className="text-xs text-stone-600 dark:text-stone-400 mt-1">
-              Tambahkan kebiasaan harian yang ingin kamu bangun bersama pasangan.
+              {editingHabitId
+                ? 'Perbarui detail kebiasaan ini. Riwayat penyelesaian tetap tersimpan.'
+                : 'Tambahkan kebiasaan yang ingin kamu bangun bersama pasangan.'}
             </p>
 
             <form onSubmit={handleCreateHabit} className="mt-5 space-y-4">
@@ -751,6 +824,22 @@ export const TodayView: React.FC<TodayViewProps> = ({
                     <option value="kesehatan">Kesehatan</option>
                     <option value="spiritual">Spiritual / syukur</option>
                     <option value="kustom">Kustom</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor="habit-frequency" className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
+                    Jadwal
+                  </label>
+                  <select
+                    id="habit-frequency"
+                    value={newFrequency}
+                    onChange={(e) => setNewFrequency(e.target.value as Habit['frequency'])}
+                    className="w-full min-h-[44px] px-3 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-base sm:text-sm"
+                  >
+                    <option value="daily">Setiap hari</option>
+                    <option value="weekdays">Senin–Jumat</option>
+                    <option value="weekends">Sabtu–Minggu</option>
                   </select>
                 </div>
 
@@ -812,7 +901,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
                   type="submit"
                   className="min-h-[44px] px-5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-medium hover:opacity-90"
                 >
-                  Simpan habit
+                  {editingHabitId ? 'Simpan perubahan' : 'Simpan habit'}
                 </button>
               </div>
             </form>

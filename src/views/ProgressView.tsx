@@ -2,13 +2,8 @@ import React, { useState } from 'react';
 import {
   Flame,
   Award,
-  Calendar,
-  BookOpen,
-  Brain,
   ShieldCheck,
   TrendingUp,
-  Clock,
-  Sparkles,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -21,26 +16,75 @@ import {
   Legend,
 } from 'recharts';
 import { useApp } from '../context/AppContext';
+import { toLocalDateString } from '../data/mockData';
 
 export const ProgressView: React.FC = () => {
-  const { currentUser, partnerUser, couple, sessions, logs, toggleGraceDay } = useApp();
+  const {
+    currentUser,
+    partnerUser,
+    couple,
+    sessions,
+    logs,
+    books,
+    journals,
+    toggleGraceDay,
+  } = useApp();
   const [chartMetric, setChartMetric] = useState<'minutes' | 'habits'>('minutes');
 
-  // Prepare weekly chart data
-  const daysOfWeek = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
-  const chartData = daysOfWeek.map((day, idx) => {
-    // Generate realistic weekly aggregated minutes
-    const readBase = [25, 30, 20, 35, 40, 50, 45][idx];
-    const studyBase = [30, 25, 45, 20, 35, 60, 40][idx];
-
+  // Rolling seven-day window, ending today.
+  const days = Array.from({ length: 7 }, (_, idx) => {
+    const date = new Date();
+    date.setHours(12, 0, 0, 0);
+    date.setDate(date.getDate() - (6 - idx));
     return {
-      day,
-      'Baca (Kamu)': Math.round(readBase * 1.1),
-      'Belajar (Kamu)': Math.round(studyBase * 1.0),
-      'Baca (Pasangan)': Math.round(readBase * 0.95),
-      'Belajar (Pasangan)': Math.round(studyBase * 1.05),
+      key: toLocalDateString(date),
+      label: date.toLocaleDateString('id-ID', { weekday: 'short' }),
     };
   });
+
+  const minutesFor = (
+    daySessions: typeof sessions,
+    userId: string | undefined,
+    category: 'baca' | 'belajar'
+  ) =>
+    userId
+      ? daySessions
+          .filter((s) => s.userId === userId && s.category === category)
+          .reduce((sum, s) => sum + Math.round(s.durationSeconds / 60), 0)
+      : 0;
+
+  const completedHabitsFor = (dateKey: string, userId: string | undefined) =>
+    userId ? logs.filter((l) => l.userId === userId && l.date === dateKey && l.completed).length : 0;
+
+  const chartData = days.map(({ key, label }) => {
+    const daySessions = sessions.filter(
+      (s) => toLocalDateString(new Date(s.timestamp)) === key
+    );
+    return {
+      day: label,
+      'Baca (Kamu)': minutesFor(daySessions, currentUser.id, 'baca'),
+      'Belajar (Kamu)': minutesFor(daySessions, currentUser.id, 'belajar'),
+      'Baca (Pasangan)': minutesFor(daySessions, partnerUser?.id, 'baca'),
+      'Belajar (Pasangan)': minutesFor(daySessions, partnerUser?.id, 'belajar'),
+      'Habit (Kamu)': completedHabitsFor(key, currentUser.id),
+      'Habit (Pasangan)': completedHabitsFor(key, partnerUser?.id),
+    };
+  });
+
+  const readingMinutes = chartData.reduce(
+    (sum, day) => sum + day['Baca (Kamu)'] + day['Baca (Pasangan)'],
+    0
+  );
+  const studyMinutes = chartData.reduce(
+    (sum, day) => sum + day['Belajar (Kamu)'] + day['Belajar (Pasangan)'],
+    0
+  );
+
+  const completedBooks = books.filter((b) => b.status === 'completed').length;
+  const totalFocusMinutes = sessions.reduce(
+    (sum, s) => sum + Math.round(s.durationSeconds / 60),
+    0
+  );
 
   const badges = [
     {
@@ -68,21 +112,21 @@ export const ProgressView: React.FC = () => {
       id: 'books_3',
       title: 'Kutu Buku Romantis',
       desc: 'Menyelesaikan 3 buku di rak bacaan kita',
-      unlocked: true,
+      unlocked: completedBooks >= 3,
       icon: '📚',
     },
     {
       id: 'hours_10',
       title: '10 Jam Fokus',
       desc: 'Mencapai total 600 menit sesi fokus bersama',
-      unlocked: true,
+      unlocked: totalFocusMinutes >= 600,
       icon: '⏳',
     },
     {
       id: 'reflection_pro',
       title: 'Refleksi Mendalam',
-      desc: 'Mengisi jurnal mingguan bersama secara konsisten',
-      unlocked: true,
+      desc: 'Mengisi minimal 2 jurnal refleksi mingguan',
+      unlocked: journals.length >= 2,
       icon: '💌',
     },
   ];
@@ -134,7 +178,7 @@ export const ProgressView: React.FC = () => {
           </div>
           <button type="button"
             onClick={toggleGraceDay}
-            className={`mt-4 py-2 px-4 rounded-xl text-xs font-semibold border transition-all ${
+            className={`mt-4 min-h-[44px] py-2 px-4 rounded-xl text-xs font-semibold border transition-all ${
               couple.graceDayUsedThisWeek
                 ? 'bg-amber-100 dark:bg-amber-900/40 border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200'
                 : 'bg-stone-50 dark:bg-stone-800 border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-300 hover:bg-stone-100'
@@ -149,7 +193,7 @@ export const ProgressView: React.FC = () => {
           <div className="flex items-center gap-2">
             <TrendingUp className="w-5 h-5 text-indigo-500" />
             <h3 className="text-sm font-bold text-stone-900 dark:text-stone-100">
-              Total Waktu Pekan Ini
+              Total Waktu 7 Hari Terakhir
             </h3>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-3">
@@ -158,7 +202,7 @@ export const ProgressView: React.FC = () => {
                 Membaca
               </span>
               <p className="text-xl font-bold font-mono text-stone-900 dark:text-stone-100 mt-0.5">
-                245 m
+                {readingMinutes} m
               </p>
             </div>
             <div className="p-3 rounded-2xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200/40 dark:border-emerald-900/30">
@@ -166,7 +210,7 @@ export const ProgressView: React.FC = () => {
                 Belajar
               </span>
               <p className="text-xl font-bold font-mono text-stone-900 dark:text-stone-100 mt-0.5">
-                260 m
+                {studyMinutes} m
               </p>
             </div>
           </div>
@@ -181,38 +225,85 @@ export const ProgressView: React.FC = () => {
               Grafik Waktu Baca & Belajar (7 Hari Terakhir)
             </h3>
             <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
-              Perbandingan kontribusi menit fokus antara kamu dan pasanganmu.
+              Dihitung otomatis dari sesi fokus yang kamu dan pasanganmu simpan.
             </p>
+          </div>
+
+          <div className="flex items-center p-1 rounded-xl bg-stone-100 dark:bg-stone-800 text-xs font-semibold">
+            <button
+              type="button"
+              onClick={() => setChartMetric('minutes')}
+              aria-pressed={chartMetric === 'minutes'}
+              className={`min-h-[44px] px-3 py-1.5 rounded-lg transition-colors ${
+                chartMetric === 'minutes'
+                  ? 'bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 shadow-xs'
+                  : 'text-stone-500 dark:text-stone-400'
+              }`}
+            >
+              Menit
+            </button>
+            <button
+              type="button"
+              onClick={() => setChartMetric('habits')}
+              aria-pressed={chartMetric === 'habits'}
+              className={`min-h-[44px] px-3 py-1.5 rounded-lg transition-colors ${
+                chartMetric === 'habits'
+                  ? 'bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 shadow-xs'
+                  : 'text-stone-500 dark:text-stone-400'
+              }`}
+            >
+              Habit
+            </button>
           </div>
         </div>
 
-        <div className="w-full h-72 pt-4">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.15} />
-              <XAxis dataKey="day" stroke="#888888" fontSize={12} tickLine={false} />
-              <YAxis stroke="#888888" fontSize={12} tickLine={false} unit="m" />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: 'rgba(25, 25, 25, 0.92)',
-                  borderRadius: '16px',
-                  border: 'none',
-                  color: '#fff',
-                  fontSize: '12px',
-                  padding: '10px 14px',
-                }}
-              />
-              <Legend
-                wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }}
-                iconType="circle"
-              />
-              <Bar dataKey="Baca (Kamu)" fill="#E06D53" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="Belajar (Kamu)" fill="#FF8A65" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="Baca (Pasangan)" fill="#4A826B" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="Belajar (Pasangan)" fill="#6BB99D" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        {totalFocusMinutes === 0 && chartMetric === 'minutes' ? (
+          <div className="h-48 rounded-2xl border border-dashed border-stone-300 dark:border-stone-700 flex flex-col items-center justify-center text-center px-4">
+            <p className="text-sm font-semibold text-stone-700 dark:text-stone-300">
+              Belum ada sesi fokus tercatat
+            </p>
+            <p className="text-xs text-stone-500 dark:text-stone-400 mt-1 max-w-sm">
+              Mulai timer fokus atau catat sesi manual, lalu grafik ini akan terisi otomatis.
+            </p>
+          </div>
+        ) : (
+          <div className="w-full h-72 pt-4">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.15} />
+                <XAxis dataKey="day" stroke="#888888" fontSize={12} tickLine={false} />
+                <YAxis stroke="#888888" fontSize={12} tickLine={false} unit={chartMetric === 'minutes' ? 'm' : ''} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: 'rgba(25, 25, 25, 0.92)',
+                    borderRadius: '16px',
+                    border: 'none',
+                    color: '#fff',
+                    fontSize: '12px',
+                    padding: '10px 14px',
+                  }}
+                />
+                <Legend
+                  wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }}
+                  iconType="circle"
+                />
+                {chartMetric === 'minutes' ? (
+                  <>
+                    <Bar dataKey="Baca (Kamu)" fill="#E06D53" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="Belajar (Kamu)" fill="#FF8A65" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="Baca (Pasangan)" fill="#4A826B" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="Belajar (Pasangan)" fill="#6BB99D" radius={[4, 4, 0, 0]} />
+                  </>
+                ) : (
+                  <>
+                    <Bar dataKey="Habit (Kamu)" fill="#E06D53" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="Habit (Pasangan)" fill="#4A826B" radius={[4, 4, 0, 0]} />
+                  </>
+                )}
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </div>
 
       {/* Badges / Pencapaian Bersama */}

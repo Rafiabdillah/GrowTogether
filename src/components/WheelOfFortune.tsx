@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { X, Sparkles, RotateCw, Trophy } from 'lucide-react';
 import { Agreement } from '../types';
 import confetti from 'canvas-confetti';
@@ -16,11 +16,34 @@ export const WheelOfFortune: React.FC<WheelOfFortuneProps> = ({ agreements, onCl
   const [selectedResult, setSelectedResult] = useState<Agreement | null>(null);
   const [rotationAngle, setRotationAngle] = useState(0);
   const dialogRef = useDialog<HTMLDivElement>(true, onClose);
+  const spinTimerRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (spinTimerRef.current !== null) window.clearTimeout(spinTimerRef.current);
+  }, []);
 
   // Eligible active agreements
   const activeItems = agreements.filter(
     (a) => a.status === 'active' && (filterType === 'all' || a.type === filterType)
   );
+
+  const sliceAngle = activeItems.length > 0 ? 360 / activeItems.length : 360;
+  const colors = ['#FF7A64', '#4E8B73', '#EBB042', '#8B5CF6', '#3B82F6', '#EC4899'];
+  const wheelBackground =
+    activeItems.length > 0
+      ? `conic-gradient(${activeItems
+          .map(
+            (_, idx) =>
+              `${colors[idx % colors.length]} ${idx * sliceAngle}deg ${(idx + 1) * sliceAngle}deg`
+          )
+          .join(', ')})`
+      : undefined;
+
+  const handleFilterChange = (type: 'all' | 'hadiah' | 'sanksi') => {
+    if (isSpinning) return;
+    setFilterType(type);
+    setSelectedResult(null);
+  };
 
   const handleSpin = () => {
     if (activeItems.length === 0 || isSpinning) return;
@@ -31,14 +54,20 @@ export const WheelOfFortune: React.FC<WheelOfFortuneProps> = ({ agreements, onCl
     const randomIndex = Math.floor(Math.random() * activeItems.length);
     const chosen = activeItems[randomIndex];
 
-    // Spin at least 5-8 full rotations plus slice angle
-    const sliceAngle = 360 / activeItems.length;
+    // The pointer sits at the top (0°). A slice centre must land there, so the
+    // wheel turns to the slice centre offset plus a few full rotations.
+    const chosenCentre =
+      activeItems.length === 1 ? 0 : randomIndex * sliceAngle + sliceAngle / 2;
+    const desiredMod = (360 - chosenCentre + 360) % 360;
+    const currentMod = ((rotationAngle % 360) + 360) % 360;
+    const alignmentDelta = (desiredMod - currentMod + 360) % 360;
     const extraRotations = (5 + Math.floor(Math.random() * 4)) * 360;
-    const targetAngle = rotationAngle + extraRotations + randomIndex * sliceAngle;
+    const targetAngle = rotationAngle + extraRotations + alignmentDelta;
 
     setRotationAngle(targetAngle);
 
-    setTimeout(() => {
+    if (spinTimerRef.current !== null) window.clearTimeout(spinTimerRef.current);
+    spinTimerRef.current = window.setTimeout(() => {
       setIsSpinning(false);
       setSelectedResult(chosen);
       sound.playHabitComplete();
@@ -49,8 +78,6 @@ export const WheelOfFortune: React.FC<WheelOfFortuneProps> = ({ agreements, onCl
       });
     }, 3200);
   };
-
-  const colors = ['#FF7A64', '#4E8B73', '#EBB042', '#8B5CF6', '#3B82F6', '#EC4899'];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -66,7 +93,7 @@ export const WheelOfFortune: React.FC<WheelOfFortuneProps> = ({ agreements, onCl
           </div>
           <button type="button"
             onClick={onClose}
-            className="p-1 rounded-lg text-stone-500 hover:text-stone-700 dark:hover:text-stone-200"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center p-1 rounded-lg text-stone-500 hover:text-stone-700 dark:hover:text-stone-200"
           >
             <X className="w-4 h-4" />
           </button>
@@ -75,7 +102,7 @@ export const WheelOfFortune: React.FC<WheelOfFortuneProps> = ({ agreements, onCl
         {/* Filter Toggle */}
         <div className="flex items-center gap-1.5 p-1 bg-stone-100 dark:bg-stone-800 rounded-xl my-4 text-xs font-semibold">
           <button type="button"
-            onClick={() => setFilterType('hadiah')}
+            onClick={() => handleFilterChange('hadiah')}
             className={`px-3 py-1.5 rounded-lg transition-colors ${
               filterType === 'hadiah'
                 ? 'bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 shadow-xs'
@@ -85,7 +112,7 @@ export const WheelOfFortune: React.FC<WheelOfFortuneProps> = ({ agreements, onCl
             Pilih Hadiah
           </button>
           <button type="button"
-            onClick={() => setFilterType('sanksi')}
+            onClick={() => handleFilterChange('sanksi')}
             className={`px-3 py-1.5 rounded-lg transition-colors ${
               filterType === 'sanksi'
                 ? 'bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 shadow-xs'
@@ -107,35 +134,26 @@ export const WheelOfFortune: React.FC<WheelOfFortuneProps> = ({ agreements, onCl
             style={{
               transform: `rotate(${rotationAngle}deg)`,
               transition: isSpinning ? 'transform 3.2s cubic-bezier(0.15, 0.9, 0.25, 1)' : 'none',
+              background: wheelBackground,
             }}
           >
             {activeItems.length > 0 ? (
               activeItems.map((item, idx) => {
-                const total = activeItems.length;
-                const angle = 360 / total;
-                const rotate = idx * angle;
+                const midAngle = activeItems.length === 1 ? 0 : idx * sliceAngle + sliceAngle / 2;
+                const rad = (midAngle * Math.PI) / 180;
+                const x = 50 + Math.sin(rad) * 31;
+                const y = 50 - Math.cos(rad) * 31;
                 return (
                   <div
                     key={item.id}
-                    className="absolute inset-0 flex items-center justify-center origin-center"
+                    className="absolute w-16 sm:w-20 text-center pointer-events-none"
                     style={{
-                      transform: `rotate(${rotate}deg)`,
+                      left: `${x}%`,
+                      top: `${y}%`,
+                      transform: `translate(-50%, -50%) rotate(${midAngle}deg)`,
                     }}
                   >
-                    <div
-                      className="w-full h-full absolute"
-                      style={{
-                        backgroundColor: colors[idx % colors.length],
-                        opacity: 0.85,
-                        clipPath: `polygon(50% 50%, 0 0, ${100 / total}% 0)`,
-                      }}
-                    />
-                    <span
-                      className="absolute top-4 text-[11px] font-bold text-white drop-shadow-xs max-w-[80px] truncate"
-                      style={{
-                        transform: `rotate(${angle / 2}deg)`,
-                      }}
-                    >
+                    <span className="block text-[10px] font-bold text-white leading-tight line-clamp-2 drop-shadow-sm">
                       {item.title}
                     </span>
                   </div>

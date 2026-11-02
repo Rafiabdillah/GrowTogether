@@ -29,7 +29,7 @@ export const ReactionToast: React.FC = () => {
 
         <button type="button"
           onClick={dismissNotification}
-          className="p-1 rounded-lg text-stone-500 hover:text-stone-700 dark:hover:text-stone-200"
+          className="min-h-[44px] min-w-[44px] flex items-center justify-center p-1 rounded-lg text-stone-500 hover:text-stone-700 dark:hover:text-stone-200"
         >
           <X className="w-4 h-4" />
         </button>

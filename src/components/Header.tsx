@@ -20,6 +20,13 @@ const NAV_LINKS = [
 const ICON_BUTTON =
   'min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-stone-600 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors';
 
+const THEME_DOT: Record<string, string> = {
+  coral: 'bg-rose-500',
+  teal: 'bg-emerald-500',
+  amber: 'bg-amber-500',
+  indigo: 'bg-indigo-500',
+};
+
 export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, onOpenSettings }) => {
   const { currentUser, isDemoMode, isDarkMode, toggleDarkMode, isOnline, switchSimulatedUser } =
     useApp();
@@ -81,7 +88,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, onOpenS
               <span
                 aria-hidden="true"
                 className={`w-2 h-2 rounded-full ${
-                  currentUser.colorTheme === 'coral' ? 'bg-rose-500' : 'bg-emerald-500'
+                  THEME_DOT[currentUser.colorTheme] ?? 'bg-amber-500'
                 }`}
               />
               <span className="max-w-[70px] sm:max-w-none truncate font-semibold">{currentName}</span>
@@ -92,7 +99,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, onOpenS
               <span
                 aria-hidden="true"
                 className={`w-2 h-2 rounded-full ${
-                  currentUser.colorTheme === 'coral' ? 'bg-rose-500' : 'bg-emerald-500'
+                  THEME_DOT[currentUser.colorTheme] ?? 'bg-amber-500'
                 }`}
               />
               <span className="max-w-[70px] sm:max-w-none truncate font-semibold">{currentName}</span>

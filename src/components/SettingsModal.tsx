@@ -1,18 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import {
   X,
-  User,
   Heart,
-  Share2,
   Copy,
   Check,
-  Volume2,
-  VolumeX,
   RotateCcw,
   Sliders,
-  Palette,
   Shield,
-  Trash2,
   Eye,
   EyeOff,
   LogOut,
@@ -24,6 +18,30 @@ import { useApp } from '../context/AppContext';
 import { ColorTheme } from '../types';
 import { useDialog } from '../hooks/useDialog';
 import { usePWAInstall } from '../hooks/usePWAInstall';
+
+const copyText = async (text: string): Promise<boolean> => {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fall through to the legacy clipboard path below.
+  }
+  try {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    const copied = document.execCommand('copy');
+    document.body.removeChild(area);
+    return copied;
+  } catch {
+    return false;
+  }
+};
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -72,6 +90,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [editTheme, setEditTheme] = useState<ColorTheme>(currentUser.colorTheme);
 
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const isConnected = !!partnerUser || !!couple.user2Id;
   const dialogRef = useDialog<HTMLDivElement>(isOpen, onClose);
 
   useEffect(() => {
@@ -79,6 +98,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setEditName(currentUser.displayName);
       setEditTheme(currentUser.colorTheme);
       setShowResetConfirm(false);
+      setPairError('');
+      setPairSuccess(false);
     }
   }, [isOpen, currentUser.id, currentUser.displayName, currentUser.colorTheme]);
 
@@ -97,23 +118,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const handleCopyCode = () => {
     const code = currentUser.inviteCode;
     if (!code) return;
-    navigator.clipboard
-      ?.writeText(code)
-      .then(() => {
+    void copyText(code).then((ok) => {
+      if (ok) {
         setCopiedCode(true);
         setTimeout(() => setCopiedCode(false), 2500);
-      })
-      .catch(() => setPairError('Gagal menyalin. Salin kode secara manual.'));
+      } else {
+        setPairError('Gagal menyalin. Salin kode secara manual.');
+      }
+    });
   };
 
   const handleCopyLink = () => {
-    navigator.clipboard
-      ?.writeText(window.location.href)
-      .then(() => {
+    void copyText(window.location.href).then((ok) => {
+      if (ok) {
         setCopiedLink(true);
         setTimeout(() => setCopiedLink(false), 2500);
-      })
-      .catch(() => {});
+      }
+    });
   };
 
   const handlePairSubmit = async (e: React.FormEvent) => {
@@ -340,13 +361,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {activeTab === 'pair' && (
             <div className="space-y-5">
+              {isConnected && (
+                <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40">
+                  <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300">
+                    <Heart className="w-4 h-4 shrink-0" />
+                    <h4 className="text-xs font-bold">Sudah terhubung</h4>
+                  </div>
+                  <p className="text-xs text-stone-600 dark:text-stone-300 mt-1.5 leading-relaxed">
+                    Kalian berdua berbagi taman yang sama dengan{' '}
+                    <strong>{partnerUser?.displayName || 'pasanganmu'}</strong>. Tidak perlu
+                    memasukkan kode lagi.
+                  </p>
+                </div>
+              )}
+
               {/* Box Kode Sendiri */}
               <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40">
                 <span className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
-                  Kode pasanganmu
+                  Kode undanganmu
                 </span>
                 <p className="text-xs text-stone-700 dark:text-stone-300 mb-3">
-                  Bagikan kode ini ke pasanganmu agar bisa terhubung ke taman yang sama.
+                  {isConnected
+                    ? 'Kode ini sudah dipakai untuk menghubungkan kalian.'
+                    : 'Bagikan kode ini ke pasanganmu agar bisa terhubung ke taman yang sama.'}
                 </p>
 
                 <div className="flex items-center gap-2">
@@ -366,39 +403,45 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
 
               {/* Form Masukkan Kode Pasangan */}
-              <form onSubmit={handlePairSubmit} className="space-y-3 pt-2">
-                <label htmlFor="partner-code" className="block text-xs font-bold text-stone-700 dark:text-stone-300">
-                  Masukkan kode dari pasangan
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    id="partner-code"
-                    type="text"
-                    value={partnerInputCode}
-                    onChange={(e) => setPartnerInputCode(e.target.value.toUpperCase())}
-                    placeholder="Misal: GROW52"
-                    maxLength={10}
-                    autoCapitalize="characters"
-                    autoComplete="off"
-                    className="flex-1 min-w-0 min-h-[44px] px-3.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 font-mono text-base sm:text-sm uppercase"
-                  />
-                  <button
-                    type="submit"
-                    className="px-4 py-2.5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-bold hover:opacity-90 active:scale-98 transition-all"
-                  >
-                    Hubungkan
-                  </button>
-                </div>
+              {!isConnected && (
+                <form onSubmit={handlePairSubmit} className="space-y-3 pt-2">
+                  <label htmlFor="partner-code" className="block text-xs font-bold text-stone-700 dark:text-stone-300">
+                    Masukkan kode dari pasangan
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      id="partner-code"
+                      type="text"
+                      value={partnerInputCode}
+                      onChange={(e) => setPartnerInputCode(e.target.value.toUpperCase())}
+                      placeholder="Misal: GROW52"
+                      maxLength={10}
+                      autoCapitalize="characters"
+                      autoComplete="off"
+                      className="flex-1 min-w-0 min-h-[44px] px-3.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 font-mono text-base sm:text-sm uppercase"
+                    />
+                    <button
+                      type="submit"
+                      className="px-4 py-2.5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-bold hover:opacity-90 active:scale-98 transition-all"
+                    >
+                      Hubungkan
+                    </button>
+                  </div>
 
-                {pairError && (
-                  <p role="alert" className="text-xs text-rose-700 dark:text-rose-400">{pairError}</p>
-                )}
-                {pairSuccess && (
-                  <p role="status" className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">
-                    Berhasil terhubung dengan pasangan.
-                  </p>
-                )}
-              </form>
+                  {pairError && (
+                    <p role="alert" className="text-xs text-rose-700 dark:text-rose-400">{pairError}</p>
+                  )}
+                  {pairSuccess && (
+                    <p role="status" className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">
+                      Berhasil terhubung dengan pasangan.
+                    </p>
+                  )}
+                </form>
+              )}
+
+              {isConnected && pairError && (
+                <p role="alert" className="text-xs text-rose-700 dark:text-rose-400">{pairError}</p>
+              )}
 
               <div className="pt-2">
                 <button
@@ -556,6 +599,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {activeTab === 'data' && (
             <div className="space-y-4">
+              {isDemoMode ? (
+                <>
               <div className="p-4 rounded-2xl bg-rose-50/70 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40">
                 <div className="flex items-center gap-2 text-rose-700 dark:text-rose-400">
                   <Shield className="w-4 h-4 shrink-0" />
@@ -605,6 +650,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   Muat Data Demo
                 </button>
               </div>
+                </>
+              ) : (
+                <div className="p-4 rounded-2xl bg-sky-50 dark:bg-sky-950/20 border border-sky-200 dark:border-sky-900/40">
+                  <div className="flex items-center gap-2 text-sky-800 dark:text-sky-300">
+                    <Shield className="w-4 h-4 shrink-0" />
+                    <h4 className="text-xs font-bold">Data akun tersinkron</h4>
+                  </div>
+                  <p className="text-xs text-sky-900/80 dark:text-sky-200/80 mt-1.5 leading-relaxed">
+                    Habit, catatan, dan kesepakatan tersimpan di akunmu dan tersinkron ke
+                    perangkat pasangan. Kontrol demo/reset hanya tersedia di mode demo lokal.
+                  </p>
+                </div>
+              )}
 
               <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700">
                 <div className="flex items-center gap-2 text-stone-800 dark:text-stone-200">

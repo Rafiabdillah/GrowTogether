@@ -56,6 +56,7 @@ function MainAppContent() {
     habitId?: string;
     category?: HabitCategory;
     minutes?: number;
+    requestId?: number;
   }>({});
 
   useEffect(() => {
@@ -89,7 +90,7 @@ function MainAppContent() {
     category: HabitCategory,
     minutes: number
   ) => {
-    setTimerConfig({ habitId, category, minutes });
+    setTimerConfig({ habitId, category, minutes, requestId: Date.now() });
     setActiveTab('timer');
   };
 
@@ -111,13 +112,14 @@ function MainAppContent() {
               onNavigateToAgreements={() => setActiveTab('agreements')}
             />
           )}
-          {activeTab === 'timer' && (
+          <div className={activeTab === 'timer' ? undefined : 'hidden'} aria-hidden={activeTab !== 'timer'}>
             <TimerView
               initialHabitId={timerConfig.habitId}
               initialCategory={timerConfig.category}
               initialMinutes={timerConfig.minutes}
+              initialRequestId={timerConfig.requestId}
             />
-          )}
+          </div>
           {activeTab === 'progress' && <ProgressView />}
           {activeTab === 'couple' && <CoupleView />}
           {activeTab === 'agreements' && <AgreementsView />}

@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import {
   Shield,
   Gift,
-  AlertTriangle,
   Plus,
   Ticket,
   PauseCircle,
@@ -10,16 +9,58 @@ import {
   Check,
   X,
   Clock,
-  Sparkles,
   Info,
-  HeartHandshake,
-  CheckCircle2,
+  Trash2,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { Agreement, AgreementType, AgreementForWhom, AgreementTriggerType } from '../types/index';
+import {
+  Agreement,
+  AgreementForWhom,
+  AgreementStatus,
+  AgreementTriggerType,
+  AgreementType,
+} from '../types/index';
 import { validateAgreementSafety } from '../lib/safetyFilter';
 import { SanctionActionModal } from '../components/SanctionActionModal';
 import { useDialog } from '../hooks/useDialog';
+
+const STATUS_META: Record<AgreementStatus, { label: string; className: string }> = {
+  draft: {
+    label: 'Draf',
+    className: 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300',
+  },
+  pending_approval: {
+    label: 'Menunggu Persetujuan',
+    className: 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300',
+  },
+  active: {
+    label: '✓ Aktif & Disetujui',
+    className: 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300',
+  },
+  triggered: {
+    label: '⚠ Sedang Terpicu',
+    className: 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300',
+  },
+  completed: {
+    label: '✓ Sudah Dijalankan',
+    className: 'bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300',
+  },
+  pardoned: {
+    label: 'Kartu Maaf Dipakai',
+    className: 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300',
+  },
+  rejected: {
+    label: 'Ditolak',
+    className: 'bg-stone-200 dark:bg-stone-800 text-stone-600 dark:text-stone-400',
+  },
+};
+
+const TRIGGER_LABELS: Record<AgreementTriggerType, string> = {
+  broken_streak: 'Streak bersama putus',
+  miss_habit_count: 'Melewatkan habit',
+  weekly_goal_miss: 'Target mingguan tidak tercapai',
+  manual: 'Dipicu manual',
+};
 
 export const AgreementsView: React.FC = () => {
   const {
@@ -30,6 +71,9 @@ export const AgreementsView: React.FC = () => {
     createAgreement,
     approveAgreement,
     rejectAgreement,
+    triggerAgreement,
+    deleteAgreement,
+    respondToPendingAction,
     togglePauseAllSanctions,
   } = useApp();
 
@@ -53,6 +97,7 @@ export const AgreementsView: React.FC = () => {
   // Joker cards for current user
   const userJokers =
     currentUser.id === couple.user1Id ? couple.jokerCardsUser1 : couple.jokerCardsUser2;
+  const hasPartner = !!couple.user2Id;
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -111,7 +156,7 @@ export const AgreementsView: React.FC = () => {
           {/* Panic Pause Button */}
           <button type="button"
             onClick={togglePauseAllSanctions}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-2xl text-xs font-semibold border transition-all ${
+            className={`flex items-center gap-1.5 min-h-[44px] px-3 py-1.5 rounded-2xl text-xs font-semibold border transition-all ${
               couple.allSanctionsPaused
                 ? 'bg-rose-100 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300'
                 : 'bg-stone-50 dark:bg-stone-800 border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-400 hover:bg-stone-100'
@@ -145,7 +190,7 @@ export const AgreementsView: React.FC = () => {
         <div className="flex items-center gap-2">
           <button type="button"
             onClick={() => setActiveTab('sanksi')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-bold transition-all ${
+            className={`flex items-center gap-2 min-h-[44px] px-4 py-2 rounded-2xl text-xs font-bold transition-all ${
               activeTab === 'sanksi'
                 ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900 shadow-xs'
                 : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
@@ -157,7 +202,7 @@ export const AgreementsView: React.FC = () => {
 
           <button type="button"
             onClick={() => setActiveTab('hadiah')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-bold transition-all ${
+            className={`flex items-center gap-2 min-h-[44px] px-4 py-2 rounded-2xl text-xs font-bold transition-all ${
               activeTab === 'hadiah'
                 ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900 shadow-xs'
                 : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
@@ -173,7 +218,7 @@ export const AgreementsView: React.FC = () => {
             setAgreementType(activeTab);
             setIsCreateModalOpen(true);
           }}
-          className="flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shadow-xs transition-all active:scale-95"
+          className="flex items-center gap-1.5 min-h-[44px] px-3.5 py-2 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shadow-xs transition-all active:scale-95"
         >
           <Plus className="w-3.5 h-3.5" />
           <span>Buat {activeTab === 'sanksi' ? 'Sanksi' : 'Hadiah'}</span>
@@ -203,7 +248,7 @@ export const AgreementsView: React.FC = () => {
                 setAgreementType(activeTab);
                 setIsCreateModalOpen(true);
               }}
-              className="px-4 py-2.5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-bold hover:opacity-90 transition-opacity"
+              className="min-h-[44px] px-4 py-2.5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-bold hover:opacity-90 transition-opacity"
             >
               + Buat {activeTab === 'sanksi' ? 'Sanksi Pertama' : 'Hadiah Pertama'}
             </button>
@@ -229,19 +274,9 @@ export const AgreementsView: React.FC = () => {
                 {/* Header tags */}
                 <div className="flex items-center justify-between gap-2">
                   <span
-                    className={`text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
-                      item.status === 'active'
-                        ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
-                        : item.status === 'triggered'
-                        ? 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300'
-                        : 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
-                    }`}
+                    className={`text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${STATUS_META[item.status].className}`}
                   >
-                    {item.status === 'active'
-                      ? '✓ Aktif & Disetujui'
-                      : item.status === 'triggered'
-                      ? '⚠ Sedang Terpicu'
-                      : 'Menunggu Persetujuan'}
+                    {STATUS_META[item.status].label}
                   </span>
 
                   <span className="text-[11px] text-stone-500">
@@ -258,14 +293,20 @@ export const AgreementsView: React.FC = () => {
                 <div className="mt-3 text-xs text-stone-500 dark:text-stone-400 flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5 text-stone-500 shrink-0" />
                   <span>
-                    Pemicu:{' '}
-                    {item.triggerType === 'broken_streak'
-                      ? 'Streak bersama putus'
-                      : item.triggerType === 'miss_habit_count'
-                      ? `Melewatkan habit ${item.triggerThreshold}x seminggu`
-                      : 'Target mingguan tidak tercapai'}
+                    Pemicu: {TRIGGER_LABELS[item.triggerType]}
+                    {item.triggerType === 'miss_habit_count' && ` ${item.triggerThreshold}x seminggu`}
                   </span>
                 </div>
+
+                {item.pendingAction && (
+                  <div className="mt-3 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/60 text-[11px] text-amber-800 dark:text-amber-200 leading-relaxed">
+                    <span className="font-bold">
+                      {item.pendingAction === 'relief' ? 'Permintaan keringanan' : 'Usulan tantangan pengganti'}
+                    </span>{' '}
+                    dari {item.pendingActionBy === currentUser.id ? 'kamu' : partnerUser?.displayName.split(' ')[0] || 'pasangan'}
+                    {item.pendingNote ? `: “${item.pendingNote}”` : '.'}
+                  </div>
+                )}
               </div>
 
               {/* Action Area */}
@@ -274,12 +315,39 @@ export const AgreementsView: React.FC = () => {
                   Diusulkan oleh {item.creatorName || 'Pasangan'}
                 </span>
 
-                <div className="flex items-center gap-2">
-                  {/* If triggered: action button */}
-                  {item.status === 'triggered' && (
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {/* Partner's relief/swap request needs a decision */}
+                  {item.pendingAction && item.pendingActionBy !== currentUser.id && (
+                    <>
+                      <button type="button"
+                        onClick={() => respondToPendingAction(item.id, true)}
+                        className="flex items-center gap-1 min-h-[44px] px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>{item.pendingAction === 'relief' ? 'Setujui Keringanan' : 'Setujui Pengganti'}</span>
+                      </button>
+                      <button type="button"
+                        onClick={() => respondToPendingAction(item.id, false)}
+                        className="flex items-center gap-1 min-h-[44px] px-3 py-1.5 rounded-xl border border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-400 text-xs font-semibold"
+                        title="Tolak permintaan pasangan"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                        <span>Tolak</span>
+                      </button>
+                    </>
+                  )}
+
+                  {item.pendingAction && item.pendingActionBy === currentUser.id && (
+                    <span className="text-[11px] text-amber-700 dark:text-amber-300 font-medium">
+                      Menunggu jawaban pasangan
+                    </span>
+                  )}
+
+                  {/* If triggered: open the action dialog */}
+                  {item.status === 'triggered' && !item.pendingAction && (
                     <button type="button"
                       onClick={() => setSelectedSanctionForAction(item)}
-                      className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-xs"
+                      className="min-h-[44px] px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-xs"
                     >
                       Buka Aksi Sanksi
                     </button>
@@ -290,14 +358,14 @@ export const AgreementsView: React.FC = () => {
                     <>
                       <button type="button"
                         onClick={() => approveAgreement(item.id)}
-                        className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold"
+                        className="flex items-center gap-1 min-h-[44px] px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold"
                       >
                         <Check className="w-3.5 h-3.5" />
                         <span>Setujui</span>
                       </button>
                       <button type="button"
                         onClick={() => rejectAgreement(item.id)}
-                        className="p-1.5 rounded-xl border border-stone-200 dark:border-stone-700 text-stone-500 hover:text-rose-500"
+                        className="min-h-[44px] min-w-[44px] flex items-center justify-center p-1.5 rounded-xl border border-stone-200 dark:border-stone-700 text-stone-500 hover:text-rose-500"
                         title="Tolak kesepakatan"
                       >
                         <X className="w-3.5 h-3.5" />
@@ -305,15 +373,35 @@ export const AgreementsView: React.FC = () => {
                     </>
                   )}
 
-                  {/* Manual trigger for testing */}
-                  {item.status === 'active' && item.type === 'sanksi' && (
+                  {/* Manual trigger to simulate a missed commitment */}
+                  {item.status === 'active' && item.type === 'sanksi' && !item.pendingAction && (
                     <button type="button"
-                      onClick={() => setSelectedSanctionForAction(item)}
-                      className="text-xs text-amber-600 dark:text-amber-400 hover:underline"
+                      onClick={() => {
+                        if (window.confirm(`Picu sanksi "${item.title}" sekarang?`)) {
+                          triggerAgreement(item.id);
+                        }
+                      }}
+                      className="min-h-[44px] inline-flex items-center text-xs text-amber-700 dark:text-amber-300 hover:underline"
                     >
                       Simulasi Terpicu
                     </button>
                   )}
+
+                  {item.creatorId === currentUser.id &&
+                    ['completed', 'pardoned', 'rejected'].includes(item.status) && (
+                      <button type="button"
+                        onClick={() => {
+                          if (window.confirm(`Hapus kesepakatan "${item.title}"?`)) {
+                            deleteAgreement(item.id);
+                          }
+                        }}
+                        aria-label={`Hapus kesepakatan: ${item.title}`}
+                        className="min-h-[44px] min-w-[44px] flex items-center justify-center p-1.5 rounded-xl border border-stone-200 dark:border-stone-700 text-stone-500 hover:text-rose-600"
+                        title="Hapus kesepakatan yang sudah selesai"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                 </div>
               </div>
             </div>
@@ -368,7 +456,7 @@ export const AgreementsView: React.FC = () => {
                   <select
                     value={forWhom}
                     onChange={(e) => setForWhom(e.target.value as AgreementForWhom)}
-                    className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs"
+                    className="w-full min-h-[44px] px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs"
                   >
                     <option value="both">Keduanya (Siapa yang lalai)</option>
                     <option value="self">Diri Sendiri</option>
@@ -383,7 +471,7 @@ export const AgreementsView: React.FC = () => {
                   <select
                     value={triggerType}
                     onChange={(e) => setTriggerType(e.target.value as AgreementTriggerType)}
-                    className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs"
+                    className="w-full min-h-[44px] px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs"
                   >
                     <option value="broken_streak">Streak Bersama Putus</option>
                     <option value="miss_habit_count">Melewatkan Habit</option>
@@ -392,19 +480,39 @@ export const AgreementsView: React.FC = () => {
                 </div>
               </div>
 
+              {(triggerType === 'miss_habit_count' || triggerType === 'weekly_goal_miss') && (
+                <div>
+                  <label htmlFor="trigger-threshold" className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
+                    {triggerType === 'miss_habit_count'
+                      ? 'Berapa kali melewatkan habit dalam seminggu?'
+                      : 'Ambang batas menit mingguan'}
+                  </label>
+                  <input
+                    id="trigger-threshold"
+                    type="number"
+                    inputMode="numeric"
+                    min="1"
+                    max="999"
+                    value={triggerThreshold}
+                    onChange={(e) => setTriggerThreshold(Math.max(1, Number(e.target.value) || 1))}
+                    className="w-full min-h-[44px] px-3 rounded-xl border border-stone-300 dark:border-stone-700 bg-transparent text-base sm:text-sm font-mono"
+                  />
+                </div>
+              )}
+
               <div className="flex justify-end gap-2 pt-2 border-t border-stone-100 dark:border-stone-800">
                 <button
                   type="button"
                   onClick={() => setIsCreateModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-medium text-stone-500"
+                  className="min-h-[44px] px-4 rounded-xl text-xs font-medium text-stone-600 dark:text-stone-400"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-medium hover:opacity-90"
+                  className="min-h-[44px] px-5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-medium hover:opacity-90"
                 >
-                  Kirim ke Pasangan
+                  {hasPartner ? 'Ajukan ke Pasangan' : 'Simpan & Aktifkan'}
                 </button>
               </div>
             </form>

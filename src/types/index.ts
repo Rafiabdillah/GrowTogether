@@ -90,6 +90,9 @@ export interface Agreement {
   timesCompleted: number;
   timesPardoned: number;
   proposedRevision?: string;
+  pendingAction?: 'relief' | 'swap';
+  pendingActionBy?: string;
+  pendingNote?: string;
   createdAt?: string;
   updatedAt?: string;
 }
