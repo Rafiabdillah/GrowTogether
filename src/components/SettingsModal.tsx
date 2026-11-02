@@ -16,10 +16,14 @@ import {
   Eye,
   EyeOff,
   LogOut,
+  Download,
+  Smartphone,
+  Monitor,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { ColorTheme } from '../types';
 import { useDialog } from '../hooks/useDialog';
+import { usePWAInstall } from '../hooks/usePWAInstall';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -54,8 +58,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     loadDemoData,
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState<'profile' | 'pair' | 'preferences' | 'data'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'pair' | 'install' | 'preferences' | 'data'>(
+    'profile'
+  );
   const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const { isInstallable, isInstalled, install } = usePWAInstall();
   const [partnerInputCode, setPartnerInputCode] = useState('');
   const [pairError, setPairError] = useState('');
   const [pairSuccess, setPairSuccess] = useState(false);
@@ -96,6 +104,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         setTimeout(() => setCopiedCode(false), 2500);
       })
       .catch(() => setPairError('Gagal menyalin. Salin kode secara manual.'));
+  };
+
+  const handleCopyLink = () => {
+    navigator.clipboard
+      ?.writeText(window.location.href)
+      .then(() => {
+        setCopiedLink(true);
+        setTimeout(() => setCopiedLink(false), 2500);
+      })
+      .catch(() => {});
   };
 
   const handlePairSubmit = async (e: React.FormEvent) => {
@@ -212,6 +230,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             }`}
           >
             Tampilan & Uji Coba
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'install'}
+            onClick={() => setActiveTab('install')}
+            className={`min-h-[44px] transition-colors border-b-2 whitespace-nowrap ${
+              activeTab === 'install'
+                ? 'border-amber-700 text-amber-800 dark:text-amber-300'
+                : 'border-transparent text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100'
+            }`}
+          >
+            Instal Aplikasi
           </button>
           <button
             type="button"
@@ -426,6 +457,100 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   Grace day mingguan melindungi streak kalian saat butuh istirahat, dan tidak ada hukuman otomatis yang membuat salah satu merasa bersalah.
                 </p>
               </div>
+            </div>
+          )}
+
+          {activeTab === 'install' && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40">
+                <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300">
+                  <Download className="w-4 h-4 shrink-0" aria-hidden="true" />
+                  <h4 className="text-xs font-bold">Pasang di perangkat ini</h4>
+                </div>
+                <p className="text-xs text-stone-600 dark:text-stone-300 mt-1.5 leading-relaxed">
+                  GrowTogether bisa dipasang seperti aplikasi biasa — tanpa Play Store atau App Store.
+                </p>
+
+                {isInstalled ? (
+                  <p
+                    role="status"
+                    className="mt-3 text-xs font-semibold text-emerald-700 dark:text-emerald-400"
+                  >
+                    Aplikasi sudah terpasang di perangkat ini.
+                  </p>
+                ) : isInstallable ? (
+                  <button
+                    type="button"
+                    onClick={() => void install()}
+                    className="mt-3 w-full min-h-[44px] rounded-xl bg-amber-700 hover:bg-amber-800 text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
+                  >
+                    <Download className="w-4 h-4" aria-hidden="true" />
+                    Pasang Sekarang
+                  </button>
+                ) : (
+                  <p className="mt-2 text-[11px] text-stone-500 dark:text-stone-400 leading-relaxed">
+                    Jika tombol pasang belum muncul, ikuti langkah manual sesuai perangkatmu di
+                    bawah ini.
+                  </p>
+                )}
+              </div>
+
+              <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700">
+                <div className="flex items-center gap-2 text-stone-800 dark:text-stone-200">
+                  <Smartphone className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" aria-hidden="true" />
+                  <h4 className="text-xs font-bold">Android (Chrome/Edge)</h4>
+                </div>
+                <ol className="mt-2 text-xs text-stone-600 dark:text-stone-300 space-y-1 list-decimal list-inside">
+                  <li>Buka aplikasi ini di Chrome.</li>
+                  <li>
+                    Ketuk menu ⋮ lalu pilih <strong>Instal aplikasi</strong> atau{' '}
+                    <strong>Tambahkan ke layar utama</strong>.
+                  </li>
+                  <li>Konfirmasi <strong>Instal</strong>.</li>
+                </ol>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700">
+                <div className="flex items-center gap-2 text-stone-800 dark:text-stone-200">
+                  <Smartphone className="w-4 h-4 text-rose-500 shrink-0" aria-hidden="true" />
+                  <h4 className="text-xs font-bold">iPhone/iPad (Safari)</h4>
+                </div>
+                <ol className="mt-2 text-xs text-stone-600 dark:text-stone-300 space-y-1 list-decimal list-inside">
+                  <li>Buka aplikasi ini di Safari.</li>
+                  <li>Ketuk tombol <strong>Bagikan</strong>.</li>
+                  <li>
+                    Pilih <strong>Tambah ke Layar Utama</strong>, lalu <strong>Tambah</strong>.
+                  </li>
+                </ol>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700">
+                <div className="flex items-center gap-2 text-stone-800 dark:text-stone-200">
+                  <Monitor className="w-4 h-4 text-sky-600 dark:text-sky-400 shrink-0" aria-hidden="true" />
+                  <h4 className="text-xs font-bold">PC/Laptop (Chrome/Edge/Brave)</h4>
+                </div>
+                <ol className="mt-2 text-xs text-stone-600 dark:text-stone-300 space-y-1 list-decimal list-inside">
+                  <li>Buka aplikasi ini di browser tersebut.</li>
+                  <li>
+                    Klik ikon <strong>instal</strong> di address bar, atau menu ⋮ →{' '}
+                    <strong>Aplikasi</strong> → <strong>Instal situs ini</strong>.
+                  </li>
+                  <li>Aplikasi terbuka di jendela sendiri dan masuk ke Start Menu / Applications.</li>
+                </ol>
+                <p className="mt-2 text-[11px] text-stone-500 dark:text-stone-400">
+                  Firefox dan Safari desktop belum mendukung pemasangan PWA; aplikasi tetap bisa
+                  dipakai lewat tab biasa.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleCopyLink}
+                className="w-full min-h-[44px] rounded-xl border border-stone-200 dark:border-stone-700 text-xs font-semibold text-stone-700 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800 flex items-center justify-center gap-2 transition-colors"
+              >
+                {copiedLink ? <Check className="w-4 h-4" aria-hidden="true" /> : <Copy className="w-4 h-4" aria-hidden="true" />}
+                {copiedLink ? 'Tautan tersalin' : 'Salin tautan aplikasi'}
+              </button>
             </div>
           )}
 

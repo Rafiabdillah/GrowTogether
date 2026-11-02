@@ -14,7 +14,17 @@ Aplikasi habit dan growth tracker untuk dua orang. Pasangan menandai habit haria
 
 ## Instalasi untuk Pengguna
 
-GrowTogether dipasang sebagai PWA di Android, iOS, maupun desktop. Panduan langkah demi langkah ada di [INSTALL.md](INSTALL.md).
+**Langsung pakai:** https://rafiabdillah.github.io/GrowTogether/
+
+GrowTogether dipasang sebagai PWA di Android, iOS, maupun desktop — satu aplikasi untuk mobile dan PC. Panduan langkah demi langkah ada di [INSTALL.md](INSTALL.md), dan juga di dalam aplikasi pada **Pengaturan → Instal Aplikasi**.
+
+- **Android:** Chrome → menu ⋮ → Instal aplikasi.
+- **iPhone/iPad:** Safari → Bagikan → Tambah ke Layar Utama.
+- **PC/Laptop:** Chrome/Edge/Brave → ikon instal di address bar.
+
+Unduhan build statis tersedia di [Releases](https://github.com/Rafiabdillah/GrowTogether/releases).
+
+> Login Google di URL GitHub Pages memerlukan `rafiabdillah.github.io` pada **Firebase Authentication → Settings → Authorized domains**. Tanpa itu, gunakan mode demo atau hosting di domain Firebase (`*.web.app`).
 
 ## Autentikasi dan Mode Demo
 
@@ -73,14 +83,25 @@ npm run deploy:hosting
 
 Tanpa langkah 4, semua baca/tulis ke Firestore akan ditolak dan aplikasi hanya berjalan di mode demo lokal. Tanpa langkah 5, buka aplikasi lewat `npm run dev` atau host `dist/` di layanan HTTPS lain.
 
+## Deploy ke GitHub Pages
+
+Build untuk subpath `/GrowTogether/` lalu dorong isi `dist/` ke branch `gh-pages`:
+
+```bash
+VITE_BASE_PATH=/GrowTogether/ npm run build
+# salin isi dist/ ke branch gh-pages (Pages: Deploy from a branch → gh-pages → /)
+```
+
+Sertakan file `.nojekyll` di root branch `gh-pages`.
+
 ## Checklist Siap Pakai
 
-- [ ] `npm run lint` dan `npm run build` lulus.
+- [x] `npm run lint` dan `npm run build` lulus.
+- [x] Aplikasi live di HTTPS: https://rafiabdillah.github.io/GrowTogether/
 - [ ] `firestore.rules` sudah dipublikasikan ke proyek Firebase yang dipakai.
 - [ ] Google Sign-In aktif dan domain hosting ada di Authorized domains.
-- [ ] Aplikasi disajikan lewat HTTPS (wajib untuk PWA dan popup login).
 - [ ] Dua akun Google berbeda berhasil membuat/menggabungkan ruang dan saling melihat progres.
-- [ ] `firebase-applet-config.json` tidak berisi kredensial admin (hanya konfigurasi web publik).
+- [x] `firebase-applet-config.json` tidak berisi kredensial admin (hanya konfigurasi web publik).
 
 ## Keamanan Firestore
 
