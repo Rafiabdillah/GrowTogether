@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFDF9"/>
+      <stop offset="100%" stop-color="#F4EFE6"/>
+    </linearGradient>
+    <linearGradient id="coralGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF8A65"/>
+      <stop offset="100%" stop-color="#E06D53"/>
+    </linearGradient>
+    <linearGradient id="sageGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6BB99D"/>
+      <stop offset="100%" stop-color="#437A64"/>
+    </linearGradient>
+    <linearGradient id="amberGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F6C562"/>
+      <stop offset="100%" stop-color="#E5A93C"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="url(#bg)"/>
+  
+  <!-- Left Sprout Leaf (Coral: Partner A) -->
+  <path d="M 256 360 C 240 280, 150 250, 140 180 C 130 110, 210 100, 246 160 C 252 170, 255 190, 256 220" 
+        fill="url(#coralGrad)" opacity="0.92"/>
+        
+  <!-- Right Sprout Leaf (Sage Teal: Partner B) -->
+  <path d="M 256 360 C 272 280, 362 250, 372 180 C 382 110, 302 100, 266 160 C 260 170, 257 190, 256 220" 
+        fill="url(#sageGrad)" opacity="0.92"/>
+        
+  <!-- Intertwined Heart Stem & Root -->
+  <path d="M 256 220 L 256 400 M 240 400 C 248 410, 264 410, 272 400" 
+        stroke="#7A6F62" stroke-width="14" stroke-linecap="round"/>
+        
+  <!-- Glowing Seed of Shared Growth -->
+  <circle cx="256" cy="180" r="18" fill="url(#amberGrad)"/>
+</svg>

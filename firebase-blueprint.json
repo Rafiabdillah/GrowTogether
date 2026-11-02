@@ -1,0 +1,221 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Profil pengguna GrowTogether",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 150 },
+        "photoURL": { "type": "string", "maxLength": 500 },
+        "colorTheme": { "type": "string", "enum": ["coral", "teal", "amber", "indigo"] },
+        "coupleId": { "type": "string", "maxLength": 128 },
+        "inviteCode": { "type": "string", "maxLength": 10 },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["displayName", "email"]
+    },
+    "Couple": {
+      "title": "Couple",
+      "description": "Data pasangan dan statistik kemajuan bersama",
+      "type": "object",
+      "properties": {
+        "user1Id": { "type": "string", "maxLength": 128 },
+        "user2Id": { "type": "string", "maxLength": 128 },
+        "combinedStreak": { "type": "number" },
+        "graceDayUsedThisWeek": { "type": "boolean" },
+        "weeklyReadingMinutesGoal": { "type": "number" },
+        "weeklyStudyMinutesGoal": { "type": "number" },
+        "levelXp": { "type": "number" },
+        "levelNumber": { "type": "number" },
+        "jokerCardsUser1": { "type": "number" },
+        "jokerCardsUser2": { "type": "number" },
+        "allSanctionsPaused": { "type": "boolean" },
+        "unlockedDecorations": { "type": "array" },
+        "selectedTimeOfDay": { "type": "string", "enum": ["auto", "dawn", "day", "sunset", "night"] },
+        "selectedWeather": { "type": "string", "enum": ["clear", "rain", "rainbow"] },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["user1Id", "combinedStreak"]
+    },
+    "CheckIn": {
+      "title": "CheckIn",
+      "description": "Check-in malam pasangan untuk mood dan kalimat syukur",
+      "type": "object",
+      "properties": {
+        "coupleId": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "date": { "type": "string", "maxLength": 20 },
+        "mood": { "type": "number" },
+        "gratitude": { "type": "string", "maxLength": 200 },
+        "isShared": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["coupleId", "userId", "date", "mood", "gratitude"]
+    },
+    "Agreement": {
+      "title": "Agreement",
+      "description": "Kesepakatan sanksi sehat dan hadiah pasangan",
+      "type": "object",
+      "properties": {
+        "coupleId": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "enum": ["sanksi", "hadiah"] },
+        "title": { "type": "string", "maxLength": 200 },
+        "forWhom": { "type": "string", "enum": ["self", "partner", "both"] },
+        "creatorId": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["draft", "pending_approval", "active", "triggered", "completed", "pardoned", "rejected"] },
+        "partnerApproved": { "type": "boolean" },
+        "triggerType": { "type": "string", "enum": ["miss_habit_count", "broken_streak", "weekly_goal_miss", "manual"] },
+        "triggerHabitIds": { "type": "array" },
+        "triggerThreshold": { "type": "number" },
+        "timesTriggered": { "type": "number" },
+        "timesCompleted": { "type": "number" },
+        "timesPardoned": { "type": "number" },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["coupleId", "type", "title", "creatorId", "status"]
+    },
+    "Habit": {
+      "title": "Habit",
+      "description": "Target kebiasaan harian pasangan",
+      "type": "object",
+      "properties": {
+        "coupleId": { "type": "string", "maxLength": 128 },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 100 },
+        "icon": { "type": "string", "maxLength": 50 },
+        "category": { "type": "string", "maxLength": 50 },
+        "targetMinutes": { "type": "number" },
+        "frequency": { "type": "string", "maxLength": 50 },
+        "isShared": { "type": "boolean" },
+        "isPrivate": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["coupleId", "ownerId", "title", "category"]
+    },
+    "Log": {
+      "title": "Log",
+      "description": "Catatan penyelesaian habit per hari",
+      "type": "object",
+      "properties": {
+        "habitId": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "coupleId": { "type": "string", "maxLength": 128 },
+        "date": { "type": "string", "maxLength": 20 },
+        "completed": { "type": "boolean" },
+        "durationMinutes": { "type": "number" },
+        "completedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["habitId", "userId", "coupleId", "date", "completed"]
+    },
+    "Session": {
+      "title": "Session",
+      "description": "Sesi fokus belajar/membaca dengan timer atau manual",
+      "type": "object",
+      "properties": {
+        "coupleId": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "habitId": { "type": "string", "maxLength": 128 },
+        "category": { "type": "string", "maxLength": 50 },
+        "durationSeconds": { "type": "number" },
+        "title": { "type": "string", "maxLength": 150 },
+        "lastPage": { "type": "number" },
+        "keyTakeaway": { "type": "string", "maxLength": 500 },
+        "timestamp": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["coupleId", "userId", "durationSeconds"]
+    },
+    "Book": {
+      "title": "Book",
+      "description": "Koleksi rak buku bacaan bersama",
+      "type": "object",
+      "properties": {
+        "coupleId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 150 },
+        "author": { "type": "string", "maxLength": 100 },
+        "status": { "type": "string", "enum": ["reading", "completed", "wishlist"] },
+        "rating": { "type": "number" },
+        "favoriteQuote": { "type": "string", "maxLength": 500 },
+        "addedBy": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["coupleId", "title", "status"]
+    },
+    "Journal": {
+      "title": "Journal",
+      "description": "Refleksi mingguan pasangan",
+      "type": "object",
+      "properties": {
+        "coupleId": { "type": "string", "maxLength": 128 },
+        "authorId": { "type": "string", "maxLength": 128 },
+        "weekNumber": { "type": "number" },
+        "year": { "type": "number" },
+        "whatWorked": { "type": "string", "maxLength": 1000 },
+        "whatWasHard": { "type": "string", "maxLength": 1000 },
+        "nextWeekGoal": { "type": "string", "maxLength": 1000 },
+        "isShared": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["coupleId", "authorId", "weekNumber", "year"]
+    },
+    "Reaction": {
+      "title": "Reaction",
+      "description": "Notifikasi dan reaksi 'Semangatin' antar pasangan",
+      "type": "object",
+      "properties": {
+        "coupleId": { "type": "string", "maxLength": 128 },
+        "senderId": { "type": "string", "maxLength": 128 },
+        "receiverId": { "type": "string", "maxLength": 128 },
+        "emoji": { "type": "string", "maxLength": 20 },
+        "habitTitle": { "type": "string", "maxLength": 100 },
+        "message": { "type": "string", "maxLength": 200 },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["coupleId", "senderId", "emoji"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Profil pengguna pribadi"
+    },
+    "/couples/{coupleId}": {
+      "schema": "Couple",
+      "description": "Hubungan pasangan dan statistik gabungan"
+    },
+    "/habits/{habitId}": {
+      "schema": "Habit",
+      "description": "Konfigurasi kebiasaan harian"
+    },
+    "/logs/{logId}": {
+      "schema": "Log",
+      "description": "Catatan penyelesaian harian"
+    },
+    "/sessions/{sessionId}": {
+      "schema": "Session",
+      "description": "Catatan sesi fokus belajar atau membaca"
+    },
+    "/books/{bookId}": {
+      "schema": "Book",
+      "description": "Daftar buku bersama"
+    },
+    "/journals/{journalId}": {
+      "schema": "Journal",
+      "description": "Jurnal refleksi pasangan"
+    },
+    "/reactions/{reactionId}": {
+      "schema": "Reaction",
+      "description": "Reaksi dorongan 'Semangatin'"
+    },
+    "/agreements/{agreementId}": {
+      "schema": "Agreement",
+      "description": "Brankas kesepakatan sanksi dan hadiah pasangan"
+    },
+    "/checkins/{checkinId}": {
+      "schema": "CheckIn",
+      "description": "Catatan check-in malam mood dan kalimat syukur"
+    }
+  }
+}
