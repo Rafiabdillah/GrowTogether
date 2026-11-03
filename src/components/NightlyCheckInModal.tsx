@@ -9,7 +9,7 @@ interface NightlyCheckInModalProps {
 }
 
 export const NightlyCheckInModal: React.FC<NightlyCheckInModalProps> = ({ onClose }) => {
-  const { currentUser, partnerUser, couple, checkins, recordCheckIn } = useApp();
+  const { currentUser, partnerUid, partnerUser, couple, checkins, recordCheckIn } = useApp();
   const todayStr = getTodayDateString();
 
   // Check if current user already checked in today
@@ -18,7 +18,7 @@ export const NightlyCheckInModal: React.FC<NightlyCheckInModalProps> = ({ onClos
   );
   // Partner's checkin today
   const partnerTodayCheckIn = checkins.find(
-    (c) => c.userId === partnerUser?.id && c.date === todayStr && c.isShared
+    (c) => c.userId === partnerUid && c.date === todayStr && c.isShared
   );
 
   const [mood, setMood] = useState<number>(existingTodayCheckIn?.mood ?? 5);

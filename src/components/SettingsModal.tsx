@@ -16,6 +16,7 @@ import {
   ArrowRightLeft,
   Trash2,
   AlertTriangle,
+  RefreshCw,
   UserMinus,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
@@ -23,6 +24,7 @@ import { ColorTheme } from '../types';
 import { useDialog } from '../hooks/useDialog';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { friendlyAccountError } from '../lib/authErrors';
+import { explainSyncEvent } from '../lib/syncBus';
 
 const copyText = async (text: string): Promise<boolean> => {
   try {
@@ -52,6 +54,8 @@ interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onOpenOnboarding: () => void;
+  /** Bumped by the sync banner to jump straight to the diagnostics tab. */
+  syncTabSignal?: number;
 }
 
 const COLOR_THEMES: { id: ColorTheme; label: string; colorClass: string; bgClass: string }[] = [
@@ -65,6 +69,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
   onOpenOnboarding,
+  syncTabSignal = 0,
 }) => {
   const {
     currentUser,
@@ -82,11 +87,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     toggleSimulatorToolbar,
     resetToEmptyState,
     loadDemoData,
+    syncEvents,
+    partnerUid,
+    cloudIdentity,
+    runSyncTest,
+    rebuildLocalCache,
+    habits,
+    reactions,
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState<'profile' | 'pair' | 'install' | 'preferences' | 'data'>(
-    'profile'
-  );
+  const [activeTab, setActiveTab] = useState<
+    'profile' | 'pair' | 'install' | 'preferences' | 'data' | 'sync'
+  >('profile');
+  const [syncTest, setSyncTest] = useState<{ ok: boolean; detail: string } | null>(null);
+  const [syncTesting, setSyncTesting] = useState(false);
+  const [syncReportCopied, setSyncReportCopied] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const { isInstallable, isInstalled, isIOS, isInAppBrowser, install } = usePWAInstall();
@@ -104,8 +119,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [leaveError, setLeaveError] = useState('');
   const [accountBusy, setAccountBusy] = useState(false);
   const [accountError, setAccountError] = useState('');
-  const isConnected = !!partnerUser || !!couple.user2Id;
+  const isConnected = !!partnerUid;
   const dialogRef = useDialog<HTMLDivElement>(isOpen, onClose);
+
+  useEffect(() => {
+    if (syncTabSignal > 0) setActiveTab('sync');
+  }, [syncTabSignal]);
 
   useEffect(() => {
     if (isOpen) {
@@ -122,6 +141,61 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setPairSuccess(false);
     }
   }, [isOpen, currentUser.id, currentUser.displayName, currentUser.colorTheme]);
+
+  // The pair needs to see, without opening a developer console, whether their
+  // account and room actually line up — that is what "sinkron tapi kosong" means.
+  const myHabitCount = habits.filter((h) => h.ownerId === cloudIdentity.userId).length;
+  const partnerHabitCount = habits.filter((h) => h.ownerId === partnerUid).length;
+  const isMemberOfRoom =
+    !!cloudIdentity.coupleId &&
+    (couple.user1Id === cloudIdentity.userId || couple.user2Id === cloudIdentity.userId);
+  const syncRows: { label: string; value: string; bad?: boolean }[] = [
+    { label: 'Akun', value: authUser?.email || 'belum masuk Google' },
+    {
+      label: 'Ruang bersama',
+      value: cloudIdentity.coupleId || '(kosong)',
+      bad: !cloudIdentity.coupleId,
+    },
+    {
+      label: 'Posisi di ruang',
+      value: isMemberOfRoom
+        ? couple.user1Id === cloudIdentity.userId
+          ? 'anggota (pemilik ruang)'
+          : 'anggota (slot kedua)'
+        : 'tidak terdaftar di ruang ini',
+      bad: !isMemberOfRoom,
+    },
+    {
+      label: 'Pasangan',
+      value: partnerUser?.displayName || (partnerUid ? 'sedang dimuat…' : 'belum terhubung'),
+      bad: !partnerUid,
+    },
+    { label: 'Habit kamu', value: `${myHabitCount}`, bad: myHabitCount === 0 },
+    {
+      label: 'Habit pasangan yang terlihat',
+      value: `${partnerHabitCount}`,
+      bad: partnerHabitCount === 0,
+    },
+    { label: 'Reaksi tersinkron', value: `${reactions.length}` },
+  ];
+
+  const handleCopySyncReport = async () => {
+    const report = [
+      `Akun: ${authUser?.email ?? '-'} (${cloudIdentity.userId || '-'})`,
+      ...syncRows.map((row) => `${row.label}: ${row.value}`),
+      ...syncEvents
+        .slice(0, 20)
+        .map(
+          (event) =>
+            `${new Date(event.at).toISOString()} ${event.kind} ${event.target} ${
+              event.ok ? 'ok' : event.message ?? 'gagal'
+            }`
+        ),
+    ].join('\n');
+    const copied = await copyText(report);
+    setSyncReportCopied(copied);
+    if (copied) setTimeout(() => setSyncReportCopied(false), 2000);
+  };
 
   if (!isOpen) return null;
 
@@ -303,6 +377,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             }`}
           >
             Hubungkan Pasangan
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'sync'}
+            onClick={() => setActiveTab('sync')}
+            className={`min-h-[44px] transition-colors border-b-2 whitespace-nowrap flex items-center gap-1.5 ${
+              activeTab === 'sync'
+                ? 'border-amber-700 text-amber-800 dark:text-amber-300'
+                : 'border-transparent text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100'
+            }`}
+          >
+            <span className="flex items-center gap-1.5">
+              Sinkronisasi
+              {syncEvents.some((event) => !event.ok) && (
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-500" aria-hidden="true" />
+              )}
+            </span>
           </button>
           <button
             type="button"
@@ -584,6 +676,158 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   )}
                 </div>
               )}
+            </div>
+          )}
+
+          {activeTab === 'sync' && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700">
+                <div className="flex items-center gap-2 text-stone-800 dark:text-stone-200">
+                  <Shield className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" aria-hidden="true" />
+                  <h4 className="text-xs font-bold">Status sinkronisasi</h4>
+                </div>
+                {isDemoMode ? (
+                  <p className="text-xs text-stone-600 dark:text-stone-300 mt-2 leading-relaxed">
+                    Kalian berada di mode demo. Semua perubahan hanya tersimpan di perangkat ini dan
+                    tidak akan pernah terlihat oleh pasangan. Masuk dengan Google untuk sinkronisasi
+                    sungguhan.
+                  </p>
+                ) : (
+                  <dl className="mt-2 space-y-1.5">
+                    {syncRows.map((row) => (
+                      <div key={row.label} className="flex items-start justify-between gap-3 text-[11px]">
+                        <dt className="text-stone-500 dark:text-stone-400 shrink-0">{row.label}</dt>
+                        <dd
+                          className={`font-semibold text-right break-all ${
+                            row.bad
+                              ? 'text-rose-600 dark:text-rose-400'
+                              : 'text-stone-800 dark:text-stone-100'
+                          }`}
+                        >
+                          {row.value}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+                <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-2 leading-relaxed">
+                  Kalau habit pasangan tidak muncul, bandingkan baris “Ruang bersama” dengan pasanganmu.
+                  Dua kode ruang yang berbeda berarti kalian belum benar-benar berpasangan.
+                </p>
+              </div>
+
+              {!isDemoMode && (
+                <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700">
+                  <h4 className="text-xs font-bold text-stone-800 dark:text-stone-200">
+                    Tes koneksi ke server
+                  </h4>
+                  <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-1 leading-relaxed">
+                    Aplikasi menulis satu dokumen kecil lalu membacanya kembali dari Firebase, lalu
+                    menghapusnya lagi. Ini membuktikan apakah perubahanmu benar-benar keluar dari
+                    perangkat.
+                  </p>
+                  <button
+                    type="button"
+                    disabled={syncTesting}
+                    onClick={async () => {
+                      setSyncTesting(true);
+                      setSyncTest(null);
+                      const result = await runSyncTest();
+                      setSyncTest(result);
+                      setSyncTesting(false);
+                    }}
+                    className="mt-3 w-full min-h-[44px] rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-semibold flex items-center justify-center gap-2 disabled:opacity-60 transition-opacity"
+                  >
+                    <RefreshCw
+                      className={`w-4 h-4 ${syncTesting ? 'animate-spin' : ''}`}
+                      aria-hidden="true"
+                    />
+                    {syncTesting ? 'Menguji…' : 'Jalankan Tes'}
+                  </button>
+                  {syncTest && (
+                    <p
+                      role="status"
+                      className={`mt-2 text-[11px] font-semibold leading-relaxed break-words ${
+                        syncTest.ok
+                          ? 'text-emerald-700 dark:text-emerald-400'
+                          : 'text-rose-600 dark:text-rose-400'
+                      }`}
+                    >
+                      {syncTest.detail}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700">
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="text-xs font-bold text-stone-800 dark:text-stone-200">
+                    Log aktivitas sinkron
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => void handleCopySyncReport()}
+                    className="min-h-[36px] px-2.5 rounded-lg text-[11px] font-semibold text-stone-600 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-700 flex items-center gap-1.5"
+                  >
+                    {syncReportCopied ? (
+                      <Check className="w-3.5 h-3.5" aria-hidden="true" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5" aria-hidden="true" />
+                    )}
+                    Salin laporan
+                  </button>
+                </div>
+                {syncEvents.length === 0 ? (
+                  <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-2">
+                    Belum ada aktivitas tercatat di sesi ini. Buat satu perubahan lalu lihat apakah
+                    muncul di daftar ini.
+                  </p>
+                ) : (
+                  <ul className="mt-2 space-y-1 max-h-56 overflow-y-auto">
+                    {syncEvents.slice(0, 20).map((event, index) => (
+                      <li key={`${event.at}-${index}`} className="text-[11px] flex gap-2">
+                        <span className="tabular-nums text-stone-400 dark:text-stone-500 shrink-0">
+                          {new Date(event.at).toLocaleTimeString('id-ID')}
+                        </span>
+                        <span
+                          className={`shrink-0 font-bold ${
+                            event.ok
+                              ? 'text-emerald-600 dark:text-emerald-400'
+                              : 'text-rose-600 dark:text-rose-400'
+                          }`}
+                          aria-hidden="true"
+                        >
+                          {event.ok ? '✓' : '!'}
+                        </span>
+                        <span className="text-stone-600 dark:text-stone-300 break-all">
+                          {event.kind === 'listen' ? `muat ${event.target}` : event.target}
+                          {event.ok
+                            ? ''
+                            : ` — ${explainSyncEvent(event)}`}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40">
+                <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300">
+                  <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden="true" />
+                  <h4 className="text-xs font-bold">Data pasangan tetap tidak muncul?</h4>
+                </div>
+                <p className="text-[11px] text-stone-600 dark:text-stone-300 mt-1.5 leading-relaxed">
+                  Kadang salinan data di ponsel menyangkut pada ruang yang lama. Tombol ini menghapus
+                  salinan lokal (data di server aman) lalu memuat ulang aplikasi.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void rebuildLocalCache()}
+                  className="mt-3 w-full min-h-[44px] rounded-xl border border-amber-300 dark:border-amber-900/50 text-amber-800 dark:text-amber-300 text-xs font-semibold hover:bg-amber-100 dark:hover:bg-amber-900/20 transition-colors"
+                >
+                  Bersihkan salinan lokal &amp; muat ulang
+                </button>
+              </div>
             </div>
           )}
 

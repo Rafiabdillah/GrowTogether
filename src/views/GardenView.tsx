@@ -30,6 +30,7 @@ export const GardenView: React.FC = () => {
     couple,
     logs,
     currentUser,
+    partnerUid,
     partnerUser,
     setTimeOfDay,
     setWeather,
@@ -44,7 +45,7 @@ export const GardenView: React.FC = () => {
     (l) => l.userId === currentUser.id && l.date === today && l.completed
   ).length;
   const completedTodayPartner = logs.filter(
-    (l) => l.userId === partnerUser?.id && l.date === today && l.completed
+    (l) => l.userId === partnerUid && l.date === today && l.completed
   ).length;
 
   const filteredInsights = activeTopic === 'all'

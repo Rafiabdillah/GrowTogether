@@ -8,6 +8,7 @@ import { AppProvider, useApp } from './context/AppContext';
 import { Header } from './components/Header';
 import { BottomNav } from './components/BottomNav';
 import { ReactionToast } from './components/ReactionToast';
+import { SyncStatusBanner } from './components/SyncStatusBanner';
 import { TodayView } from './views/TodayView';
 import { TimerView } from './views/TimerView';
 import { CoupleSimulatorToolbar } from './components/CoupleSimulatorToolbar';
@@ -53,6 +54,7 @@ function MainAppContent() {
   } = useApp();
   const [activeTab, setActiveTab] = useState<string>('today');
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [syncTabSignal, setSyncTabSignal] = useState<number>(0);
   const [timerConfig, setTimerConfig] = useState<{
     habitId?: string;
     category?: HabitCategory;
@@ -107,6 +109,13 @@ function MainAppContent() {
 
       <ReactionToast />
 
+      <SyncStatusBanner
+        onOpenDiagnostics={() => {
+          setSyncTabSignal((prev) => prev + 1);
+          setIsSettingsOpen(true);
+        }}
+      />
+
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 pb-28 lg:pb-12">
         <Suspense fallback={<TabFallback />}>
           {activeTab === 'today' && (
@@ -135,6 +144,7 @@ function MainAppContent() {
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
+        syncTabSignal={syncTabSignal}
         onOpenOnboarding={() => {
           setIsSettingsOpen(false);
           setIsOnboardingOpen(true);

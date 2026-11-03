@@ -60,6 +60,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
 }) => {
   const {
     currentUser,
+    partnerUid,
     partnerUser,
     couple,
     habits,
@@ -105,7 +106,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
   );
   // Partner's personal habits are visible to you but read-only.
   const partnerOnlyHabits = habits.filter(
-    (h) => h.ownerId === partnerUser?.id && !h.isShared && !h.isPrivate && isScheduledForDate(h)
+    (h) => h.ownerId === partnerUid && !h.isShared && !h.isPrivate && isScheduledForDate(h)
   );
 
   const userLogsForDate = logs.filter(
@@ -117,12 +118,12 @@ export const TodayView: React.FC<TodayViewProps> = ({
   const userPercent = userTotalHabits > 0 ? Math.round((userCompletedCount / userTotalHabits) * 100) : 0;
 
   const partnerLogsForDate = logs.filter(
-    (l) => l.userId === partnerUser?.id && l.date === selectedDate && l.completed
+    (l) => l.userId === partnerUid && l.date === selectedDate && l.completed
   );
   const partnerCompletedHabitIds = new Set(partnerLogsForDate.map((l) => l.habitId));
   // Only habits we are allowed to see can count toward the partner's visible progress.
   const partnerHabits = habits.filter(
-    (h) => !h.isPrivate && (h.ownerId === partnerUser?.id || h.isShared)
+    (h) => !h.isPrivate && (h.ownerId === partnerUid || h.isShared)
   );
   const partnerCompletedCount = partnerHabits.filter((h) => partnerCompletedHabitIds.has(h.id)).length;
   const partnerPercent =
@@ -428,7 +429,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
         <div className="flex items-center gap-2">
           <HeartHandshake className="w-4 h-4 text-rose-600 dark:text-rose-400" aria-hidden="true" />
           <span className="text-xs font-medium text-stone-700 dark:text-stone-300">
-            Kirim semangat ke {partnerUser?.displayName.split(' ')[0]}
+            Kirim semangat ke {partnerUser?.displayName.split(' ')[0] ?? 'pasangan'}
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -701,14 +702,14 @@ export const TodayView: React.FC<TodayViewProps> = ({
         )}
       </section>
 
-      {partnerUser && partnerOnlyHabits.length > 0 && (
+      {partnerUid && partnerOnlyHabits.length > 0 && (
         <section aria-labelledby="partner-habits-heading" className="space-y-3">
           <div>
             <h2
               id="partner-habits-heading"
               className="text-base font-bold text-stone-900 dark:text-stone-100"
             >
-              Habit {partnerUser.displayName.split(' ')[0]}
+              Habit {partnerUser?.displayName.split(' ')[0] ?? 'pasangan'}
             </h2>
             <p className="text-xs text-stone-600 dark:text-stone-400 mt-0.5">
               Hanya bisa dilihat. Penanda selesai dilakukan oleh pasanganmu sendiri.

@@ -41,11 +41,21 @@ import {
   query,
   where,
   getDoc,
+  getDocFromServer,
   getDocs,
   deleteField,
   increment,
   runTransaction,
+  waitForPendingWrites,
+  terminate,
+  clearIndexedDbPersistence,
 } from 'firebase/firestore';
+import {
+  emitSyncEvent,
+  explainSyncEvent,
+  subscribeSyncEvents,
+  type SyncEvent,
+} from '../lib/syncBus';
 
 interface AppContextType {
   // Auth
@@ -73,6 +83,15 @@ interface AppContextType {
   checkIns: CheckIn[];
   activeNotification: Reaction | null;
   dismissNotification: () => void;
+  // Sync diagnostics: every Firestore failure used to land in console.warn only.
+  syncEvents: SyncEvent[];
+  syncAlert: SyncEvent | null;
+  dismissSyncAlert: () => void;
+  lastSentReaction: { emoji: string; at: number; ok: boolean } | null;
+  partnerUid: string;
+  cloudIdentity: { userId: string; coupleId: string };
+  runSyncTest: () => Promise<{ ok: boolean; detail: string }>;
+  rebuildLocalCache: () => Promise<void>;
   selectedDate: string;
   setSelectedDate: (date: string) => void;
   isOnline: boolean;
@@ -193,22 +212,74 @@ let cloudSyncEnabled = false;
 
 type FirestoreDocRef = ReturnType<typeof doc>;
 
+function syncErrorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+// setDoc() resolves as soon as the local cache accepts the write, so a device on
+// a dead network reports "saved" while the partner sees nothing. This waits for
+// the server acknowledgement without ever blocking the UI.
+function watchServerAck(referencePath: string) {
+  const unconfirmed = new Promise<'unconfirmed'>((resolve) =>
+    setTimeout(() => resolve('unconfirmed'), 15000)
+  );
+  void Promise.race([
+    waitForPendingWrites(db).then(() => 'acked' as const),
+    unconfirmed,
+  ]).then((result) => {
+    if (result === 'acked') return;
+    emitSyncEvent({
+      at: Date.now(),
+      kind: 'write',
+      target: referencePath,
+      ok: false,
+      message: 'unconfirmed: perubahan masih tersimpan di perangkat dan belum diterima server',
+    });
+  });
+}
+
 async function cloudSetDoc(
   reference: FirestoreDocRef,
   data: object,
   options?: { merge?: boolean }
 ) {
   if (!cloudSyncEnabled) return;
-  if (options) {
-    await firestoreSetDoc(reference, data, options);
-  } else {
-    await firestoreSetDoc(reference, data);
+  try {
+    if (options) {
+      await firestoreSetDoc(reference, data, options);
+    } else {
+      await firestoreSetDoc(reference, data);
+    }
+    emitSyncEvent({ at: Date.now(), kind: 'write', target: reference.path, ok: true });
+    watchServerAck(reference.path);
+  } catch (error) {
+    emitSyncEvent({
+      at: Date.now(),
+      kind: 'write',
+      target: reference.path,
+      ok: false,
+      message: syncErrorText(error),
+    });
+    throw error;
   }
 }
 
 async function cloudDeleteDoc(reference: FirestoreDocRef) {
   if (!cloudSyncEnabled) return;
-  await firestoreDeleteDoc(reference);
+  try {
+    await firestoreDeleteDoc(reference);
+    emitSyncEvent({ at: Date.now(), kind: 'delete', target: reference.path, ok: true });
+    watchServerAck(reference.path);
+  } catch (error) {
+    emitSyncEvent({
+      at: Date.now(),
+      kind: 'delete',
+      target: reference.path,
+      ok: false,
+      message: syncErrorText(error),
+    });
+    throw error;
+  }
 }
 
 function loadPersistedState(): Partial<PersistedState> {
@@ -239,6 +310,17 @@ function generateInviteCode(): string {
     }
   }
   return code;
+}
+
+// A hug that arrived while the phone was closed should still greet the partner
+// on the next open, but a month of history must not.
+const REACTION_NEWS_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+function isFreshReaction(createdAt?: string): boolean {
+  const at = Date.parse(createdAt ?? '');
+  if (!Number.isFinite(at)) return false;
+  const delta = Date.now() - at;
+  return delta >= 0 && delta < REACTION_NEWS_WINDOW_MS;
 }
 
 function normalizeCouple(id: string, data: Partial<Couple>): Couple {
@@ -314,6 +396,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const reactionsPrimed = useRef(false);
   const lastNotifiedReactionId = useRef<string | null>(null);
   const [activeNotification, setActiveNotification] = useState<Reaction | null>(null);
+  const [syncEvents, setSyncEvents] = useState<SyncEvent[]>([]);
+  const [syncAlert, setSyncAlert] = useState<SyncEvent | null>(null);
+  const [lastSentReaction, setLastSentReaction] = useState<
+    { emoji: string; at: number; ok: boolean } | null
+  >(null);
   const [highFiveCelebrated, setHighFiveCelebrated] = useState<boolean>(false);
   const [selectedDate, setSelectedDate] = useState<string>(getTodayDateString());
   const [isOnline, setIsOnline] = useState<boolean>(
@@ -342,14 +429,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       : SEED_USER_A
   );
 
-  const partnerId =
-    couple.user1Id === currentUser.id
-      ? couple.user2Id
-      : couple.user1Id === currentUserId
-        ? couple.user2Id
-        : couple.user1Id;
+  // Cloud writes must be addressed with the signed-in uid and the coupleId on the
+  // profile document. `couple.id` is a listener result that can lag a room change,
+  // and a write carrying a stale or empty coupleId is rejected by the security
+  // rules — silently, because every caller used to swallow the error.
+  const myUid = isDemoMode ? currentUser.id : authUser?.uid ?? currentUserId;
+  const profileCoupleId =
+    (authUser ? usersState[authUser.uid]?.coupleId : undefined) ?? currentUser.coupleId ?? '';
+  const cloudIdentity = {
+    userId: myUid,
+    coupleId: isDemoMode ? couple.id || profileCoupleId : profileCoupleId,
+  };
+  // The room document is the authority on who the partner is; their profile may
+  // not have arrived from Firestore yet, and reactions must not depend on it.
+  const roomIsMine = !cloudIdentity.coupleId || couple.id === cloudIdentity.coupleId;
+  const partnerUid = roomIsMine
+    ? (couple.user1Id === myUid ? couple.user2Id : couple.user1Id) || ''
+    : '';
   const partnerUser: UserProfile | null =
-    partnerId && partnerId !== currentUser.id ? usersState[partnerId] ?? null : null;
+    partnerUid && partnerUid !== myUid ? usersState[partnerUid] ?? null : null;
 
   const clearLocalCollections = () => {
     setHabits([]);
@@ -371,6 +469,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     clearLocalCollections();
     setActiveNotification(null);
     setHighFiveCelebrated(false);
+    setSyncEvents([]);
+    setSyncAlert(null);
+    setLastSentReaction(null);
   };
 
   useEffect(() => {
@@ -818,6 +919,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           .catch((e) => console.warn('Firestore clear stale coupleId:', e));
       },
       (err) => {
+        emitSyncEvent({
+          at: Date.now(),
+          kind: 'listen',
+          target: 'ruang bersama',
+          ok: false,
+          message: err.message,
+        });
         console.warn('Firestore couple snapshot:', err.message);
       }
     );
@@ -893,7 +1001,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const profile = snap.data() as UserProfile;
           setUsersState((prev) => ({ ...prev, [snap.id]: { ...profile, id: snap.id } }));
         },
-        (err) => console.warn('Firestore user snapshot:', err.message)
+        (err) => {
+          emitSyncEvent({
+            at: Date.now(),
+            kind: 'listen',
+            target: 'profil',
+            ok: false,
+            message: err.message,
+          });
+          console.warn('Firestore user snapshot:', err.message);
+        }
       )
     );
 
@@ -908,8 +1025,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     reactionsPrimed.current = false;
     const byCouple = (name: string) =>
       query(collection(db, name), where('coupleId', '==', coupleId));
-    const report = (name: string) => (err: Error) =>
+    const report = (name: string) => (err: Error) => {
+      // A denied listener means the partner's data never arrives, and it used to
+      // be invisible outside the developer console.
+      emitSyncEvent({
+        at: Date.now(),
+        kind: 'listen',
+        target: name,
+        ok: false,
+        message: err.message,
+      });
       console.warn(`Firestore ${name} snapshot:`, err.message);
+    };
 
     // Privacy-aware collections are loaded as two queries — couple-visible docs and
     // the current user's own docs — because Firestore rules cannot express OR.
@@ -1053,19 +1180,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       report('journals')
     );
 
+    const seenReactionKey = `gt_seen_reaction_${currentUserId}`;
     const reactionsUnsub = onSnapshot(
       byCouple('reactions'),
       (snapshot) => {
         const fetched: Reaction[] = snapshot.docs.map((d) => ({ ...(d.data() as Reaction), id: d.id }));
         fetched.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-        const latestToMe = fetched.find((r) => r.receiverId === currentUserId);
+        // Rows written before receiverId existed carry no addressee; anything a
+        // partner sent was aimed at this account.
+        const latestToMe = fetched.find(
+          (r) => (r.receiverId ? r.receiverId === currentUserId : r.senderId !== currentUserId) &&
+            r.senderId !== currentUserId
+        );
         if (!reactionsPrimed.current) {
-          // The first snapshot is history, not news.
+          // The first snapshot is history, not news — unless it holds a reaction
+          // this device has never shown.
           reactionsPrimed.current = true;
           lastNotifiedReactionId.current = latestToMe?.id ?? null;
+          if (latestToMe && latestToMe.id !== readStorage(seenReactionKey) && isFreshReaction(latestToMe.createdAt)) {
+            writeStorage(seenReactionKey, latestToMe.id);
+            setActiveNotification(latestToMe);
+            sound.playReactionSent();
+          }
         } else if (latestToMe && latestToMe.id !== lastNotifiedReactionId.current) {
           lastNotifiedReactionId.current = latestToMe.id;
+          writeStorage(seenReactionKey, latestToMe.id);
           setActiveNotification(latestToMe);
+          sound.playReactionSent();
         }
         setReactions(fetched);
       },
@@ -1140,24 +1281,165 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [authUser, currentUser.coupleId, currentUserId]);
 
+  // Every Firestore failure reaches the UI: the newest one as a banner, the
+  // recent history in the sync panel.
+  useEffect(
+    () =>
+      subscribeSyncEvents((event) => {
+        setSyncEvents((prev) => [event, ...prev].slice(0, 40));
+        if (!event.ok) setSyncAlert(event);
+      }),
+    []
+  );
+
+  // A write aimed at no room is rejected by the security rules, and a write aimed
+  // at the wrong room lands where the partner will never look. Refuse instead.
+  const requireRoom = (label: string): string | null => {
+    if (cloudIdentity.coupleId) return cloudIdentity.coupleId;
+    emitSyncEvent({
+      at: Date.now(),
+      kind: 'write',
+      target: label,
+      ok: false,
+      message: 'belum masuk ruang bersama, jadi perubahan tidak bisa dikirim ke pasangan',
+    });
+    return null;
+  };
+
+  const dismissSyncAlert = () => setSyncAlert(null);
+
+  // The on-device Firestore cache can keep serving an old room after a re-pair,
+  // which looks exactly like "data pasangan hilang". Wipe it and start clean.
+  const rebuildLocalCache = async () => {
+    try {
+      await terminate(db);
+      await clearIndexedDbPersistence(db);
+    } catch (error) {
+      console.warn('Firestore cache reset:', error);
+    }
+    window.location.reload();
+  };
+
+  // Rows written by older builds can be missing the privacy flags the partner's
+  // queries filter on, which hides them from the other phone for good. Only the
+  // owner may patch their own rows, and the owner's own listener always returns
+  // them, so the repair happens here and stops as soon as the fields exist.
+  useEffect(() => {
+    if (isDemoMode || !authUser) return;
+    const habitIsPrivate = (habitId?: string) =>
+      habits.find((h) => h.id === habitId)?.isPrivate === true;
+
+    for (const habit of habits.filter((h) => h.ownerId === myUid && h.isPrivate === undefined)) {
+      void cloudSetDoc(
+        doc(db, 'habits', habit.id),
+        { isPrivate: false, isShared: habit.isShared !== false },
+        { merge: true }
+      ).catch(() => undefined);
+    }
+    for (const log of logs.filter((l) => l.userId === myUid && !l.visibility)) {
+      void cloudSetDoc(
+        doc(db, 'logs', log.id),
+        { visibility: habitIsPrivate(log.habitId) ? 'private' : 'couple' },
+        { merge: true }
+      ).catch(() => undefined);
+    }
+    for (const session of sessions.filter((s) => s.userId === myUid && !s.visibility)) {
+      void cloudSetDoc(
+        doc(db, 'sessions', session.id),
+        { visibility: habitIsPrivate(session.habitId) ? 'private' : 'couple' },
+        { merge: true }
+      ).catch(() => undefined);
+    }
+  }, [isDemoMode, authUser, myUid, habits, logs, sessions]);
+
+  // Writes the smallest possible document into a collection both partners may
+  // read, then insists on reading it back from the server. This is the only way
+  // to tell "the network is fine" apart from "your changes never leave the phone".
+  const runSyncTest = async (): Promise<{ ok: boolean; detail: string }> => {
+    const coupleId = cloudIdentity.coupleId;
+    if (!authUser) return { ok: false, detail: 'Belum masuk dengan akun Google.' };
+    if (!coupleId) return { ok: false, detail: 'Akun ini belum punya ruang bersama.' };
+
+    const probeId = `probe_${Date.now()}`;
+    const ref = doc(db, 'reactions', probeId);
+    const startedAt = Date.now();
+    try {
+      await firestoreSetDoc(ref, {
+        coupleId,
+        senderId: authUser.uid,
+        senderName: currentUser.displayName,
+        receiverId: authUser.uid,
+        emoji: '🧪',
+        message: 'Tes sinkronisasi otomatis',
+        createdAt: new Date().toISOString(),
+      });
+      await Promise.race([
+        waitForPendingWrites(db),
+        new Promise<void>((resolve) => setTimeout(resolve, 10000)),
+      ]);
+      const snap = await getDocFromServer(ref);
+      const arrived = snap.exists();
+      await firestoreDeleteDoc(ref).catch(() => undefined);
+      const ms = Date.now() - startedAt;
+      emitSyncEvent({
+        at: Date.now(),
+        kind: 'write',
+        target: 'tes sinkronisasi',
+        ok: arrived,
+        message: arrived ? undefined : 'server tidak mengembalikan dokumen tes',
+      });
+      return arrived
+        ? { ok: true, detail: `Server Firebase menerima dan mengembalikan data dalam ${ms} ms.` }
+        : {
+            ok: false,
+            detail: 'Tulisan tidak kembali dari server. Biasanya aturan akses atau koneksi.',
+          };
+    } catch (error) {
+      const message = syncErrorText(error);
+      await firestoreDeleteDoc(ref).catch(() => undefined);
+      emitSyncEvent({
+        at: Date.now(),
+        kind: 'write',
+        target: 'tes sinkronisasi',
+        ok: false,
+        message,
+      });
+      return { ok: false, detail: message };
+    }
+  };
+
+  // Room-level patches (goals, weather, joker cards) all address the couple doc.
+  const patchCoupleRoom = async (updates: Partial<Couple>, label: string) => {
+    const coupleId = requireRoom(label);
+    if (!coupleId) return;
+    try {
+      await cloudSetDoc(doc(db, 'couples', coupleId), updates, { merge: true });
+    } catch (e) {
+      console.warn(`Firestore ${label}:`, e);
+    }
+  };
+
   // Toggle a habit for a given day (defaults to the selected date)
   const toggleHabit = async (habitId: string, targetDate?: string) => {
     const habit = habits.find((h) => h.id === habitId);
     if (!habit) return;
+    if (!requireRoom('habit ' + habit.title)) return;
 
     const date = targetDate ?? selectedDate;
-    const logId = `${habitId}_${date}_${currentUser.id}`;
+    const logId = `${habitId}_${date}_${myUid}`;
     const existing = logs.find((l) => l.id === logId);
     const newCompleted = !existing?.completed;
     const updatedLog: HabitLog = {
       id: logId,
       habitId,
-      userId: currentUser.id,
-      coupleId: habit.coupleId || couple.id,
+      userId: myUid,
+      coupleId: habit.coupleId || cloudIdentity.coupleId,
       date,
       completed: newCompleted,
       durationMinutes: existing?.durationMinutes ?? habit.targetMinutes ?? 0,
       completedAt: newCompleted ? new Date().toISOString() : undefined,
+      // Firestore cannot query a missing field, so the partner's visibility
+      // filter needs this written explicitly on every row.
       visibility: habit.isPrivate ? 'private' : 'couple',
     };
 
@@ -1198,9 +1480,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Add Habit
   const addHabit = async (newHabit: Omit<Habit, 'id' | 'createdAt'>) => {
+    const coupleId = requireRoom('habit baru');
+    if (!coupleId) return;
     const id = `habit_${Date.now()}`;
     const habitObj: Habit = {
       ...newHabit,
+      coupleId,
+      ownerId: myUid,
+      isShared: newHabit.isShared !== false,
+      isPrivate: newHabit.isPrivate === true,
       id,
       createdAt: new Date().toISOString(),
     };
@@ -1244,14 +1532,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Record Focus Session
   const recordFocusSession = async (sessionData: Omit<FocusSession, 'id' | 'timestamp'>) => {
+    const coupleId = requireRoom('sesi fokus');
+    if (!coupleId) return;
     const sessionId = `session_${Date.now()}`;
     const sessionHabit = sessionData.habitId
       ? habits.find((h) => h.id === sessionData.habitId)
       : undefined;
     const sessionObj: FocusSession = {
       ...sessionData,
-      coupleId: sessionData.coupleId || couple.id,
-      userId: sessionData.userId || currentUser.id,
+      coupleId: sessionData.coupleId || coupleId,
+      userId: myUid,
       id: sessionId,
       timestamp: new Date().toISOString(),
       visibility: sessionHabit?.isPrivate ? 'private' : 'couple',
@@ -1262,7 +1552,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (sessionData.habitId) {
       const habit = habits.find((h) => h.id === sessionData.habitId);
       const minutes = Math.round(sessionData.durationSeconds / 60);
-      const logId = `${sessionData.habitId}_${selectedDate}_${currentUser.id}`;
+      const logId = `${sessionData.habitId}_${selectedDate}_${myUid}`;
       const previous = logs.find((l) => l.id === logId);
       const totalMinutes = (previous?.durationMinutes || 0) + minutes;
       const reachedTarget =
@@ -1270,8 +1560,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const logObj: HabitLog = {
         id: logId,
         habitId: sessionData.habitId,
-        userId: currentUser.id,
-        coupleId: habit?.coupleId || couple.id,
+        userId: myUid,
+        coupleId: habit?.coupleId || coupleId,
         date: selectedDate,
         completed: reachedTarget,
         durationMinutes: totalMinutes,
@@ -1311,16 +1601,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Send "Semangatin" Reaction
   const sendReaction = async (emoji: string, habitTitle?: string, message?: string) => {
-    if (!partnerUser) return;
-    if (!currentUser.coupleId) return;
+    const coupleId = requireRoom('reaksi semangat');
+    if (!coupleId) return;
+    if (!partnerUid) {
+      emitSyncEvent({
+        at: Date.now(),
+        kind: 'write',
+        target: 'reaksi semangat',
+        ok: false,
+        message: 'belum ada pasangan di ruang ini, jadi pelukan tidak bisa dikirim',
+      });
+      return;
+    }
 
     const reactionId = `react_${Date.now()}`;
     const reactionObj: Reaction = {
       id: reactionId,
-      coupleId: currentUser.coupleId,
-      senderId: currentUser.id,
+      coupleId,
+      senderId: myUid,
       senderName: currentUser.displayName,
-      receiverId: partnerUser.id,
+      receiverId: partnerUid,
       emoji,
       habitTitle,
       message: message || `Menyemangati kamu dengan ${emoji}!`,
@@ -1328,6 +1628,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setReactions((prev) => [reactionObj, ...prev]);
+    setLastSentReaction({ emoji, at: Date.now(), ok: true });
     sound.playReactionSent();
 
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
@@ -1345,11 +1646,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Add Book
   const addBook = async (bookData: Omit<Book, 'id' | 'updatedAt'>) => {
+    const coupleId = requireRoom('buku');
+    if (!coupleId) return;
     const id = `book_${Date.now()}`;
     const bookObj: Book = {
       ...bookData,
+      coupleId,
       id,
-      addedById: currentUser.id,
+      addedById: myUid,
       updatedAt: new Date().toISOString(),
     };
     setBooks((prev) => [bookObj, ...prev]);
@@ -1382,9 +1686,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Add Journal Reflection
   const addJournal = async (entryData: Omit<JournalEntry, 'id' | 'createdAt'>) => {
+    const coupleId = requireRoom('jurnal mingguan');
+    if (!coupleId) return;
     const id = `journal_${Date.now()}`;
     const entryObj: JournalEntry = {
       ...entryData,
+      coupleId,
+      authorId: myUid,
+      isShared: entryData.isShared !== false,
       id,
       createdAt: new Date().toISOString(),
     };
@@ -1421,11 +1730,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...prev,
       graceDayUsedThisWeek: nextVal,
     }));
-    try {
-      await cloudSetDoc(doc(db, 'couples', couple.id), { graceDayUsedThisWeek: nextVal }, { merge: true });
-    } catch (e) {
-      console.warn('Firestore graceDay:', e);
-    }
+    await patchCoupleRoom({ graceDayUsedThisWeek: nextVal }, 'graceDay');
   };
 
   // Fast switch simulated user (for 1-click testing of couples UX on single screen)
@@ -1468,12 +1773,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Update couple profile
   const updateCoupleProfile = async (updates: Partial<Couple>) => {
     setCouple((prev) => ({ ...prev, ...updates }));
-
-    try {
-      await cloudSetDoc(doc(db, 'couples', couple.id), updates, { merge: true });
-    } catch (e) {
-      console.warn('Firestore updateCoupleProfile:', e);
-    }
+    await patchCoupleRoom(updates, 'updateCoupleProfile');
   };
 
   // Reset to Empty State for brand new couples
@@ -1695,11 +1995,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Create Agreement
   const createAgreement = async (agreementData: Omit<Agreement, 'id' | 'createdAt' | 'updatedAt'>) => {
+    const coupleId = requireRoom('kesepakatan');
+    if (!coupleId) return;
     const id = `agr_${Date.now()}`;
     // Without a partner there is nobody to approve; keep the pact usable immediately.
-    const hasPartner = !!couple.user2Id;
+    const hasPartner = !!partnerUid;
     const agreementObj: Agreement = {
       ...agreementData,
+      coupleId,
+      creatorId: myUid,
       id,
       status: hasPartner ? 'pending_approval' : 'active',
       partnerApproved: !hasPartner,
@@ -1877,7 +2181,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Use Joker Card
   const useJokerCard = async (agreementId: string): Promise<boolean> => {
-    const isUser1 = currentUser.id === couple.user1Id;
+    const isUser1 = myUid === couple.user1Id;
     const currentJokers = isUser1 ? couple.jokerCardsUser1 : couple.jokerCardsUser2;
     if (currentJokers <= 0) return false;
 
@@ -1893,8 +2197,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       )
     );
 
+    await patchCoupleRoom(coupleUpdates, 'useJokerCard');
     try {
-      await cloudSetDoc(doc(db, 'couples', couple.id), coupleUpdates, { merge: true });
       await cloudSetDoc(doc(db, 'agreements', agreementId), { status: 'pardoned' }, { merge: true });
     } catch (e) {
       console.warn('Firestore useJokerCard:', e);
@@ -1905,12 +2209,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Record Nightly Check-in. One entry per user per day: editing it again must
   // overwrite the same document and must not farm the +25 XP repeatedly.
   const recordCheckIn = async (checkInData: Omit<CheckIn, 'id' | 'createdAt'>) => {
-    const existing = checkins.find(
-      (c) => c.userId === checkInData.userId && c.date === checkInData.date
-    );
-    const id = existing?.id ?? `chk_${checkInData.userId}_${checkInData.date}`;
+    const coupleId = requireRoom('check-in malam');
+    if (!coupleId) return;
+    const userId = checkInData.userId === currentUser.id ? myUid : checkInData.userId;
+    const existing = checkins.find((c) => c.userId === userId && c.date === checkInData.date);
+    const id = existing?.id ?? `chk_${userId}_${checkInData.date}`;
     const newCheckIn: CheckIn = {
       ...checkInData,
+      coupleId,
+      userId,
+      // An untagged check-in would be invisible to the partner's shared query.
+      isShared: checkInData.isShared !== false,
       id,
       createdAt: existing?.createdAt ?? new Date().toISOString(),
     };
@@ -1935,7 +2244,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const targetDec = ISLAND_DECORATIONS.find((d) => d.id === decorationId);
     if (!targetDec) return false;
     const current = coupleRef.current;
-    if (!current.id) return false;
+    const roomId = cloudIdentity.coupleId;
+    if (!roomId) return false;
     if (current.unlockedDecorations.includes(decorationId)) return true;
 
     const applyLocal = (xp: number, decorations: IslandDecorationId[]) => {
@@ -1954,7 +2264,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     try {
       const result = await runTransaction(db, async (tx) => {
-        const ref = doc(db, 'couples', current.id);
+        const ref = doc(db, 'couples', roomId);
         const snap = await tx.get(ref);
         if (!snap.exists()) return { ok: false as const };
         const data = snap.data() as Partial<Couple>;
@@ -1980,7 +2290,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const nextXp = current.levelXp - targetDec.xpCost;
       applyLocal(nextXp, nextDecorations);
       await cloudSetDoc(
-        doc(db, 'couples', current.id),
+        doc(db, 'couples', roomId),
         { levelXp: nextXp, unlockedDecorations: nextDecorations },
         { merge: true }
       ).catch(() => undefined);
@@ -1991,20 +2301,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Time of day and weather overrides
   const setTimeOfDay = async (time: TimeOfDay) => {
     setCouple((prev) => ({ ...prev, selectedTimeOfDay: time }));
-    try {
-      await cloudSetDoc(doc(db, 'couples', couple.id), { selectedTimeOfDay: time }, { merge: true });
-    } catch (e) {
-      console.warn('Firestore setTimeOfDay:', e);
-    }
+    await patchCoupleRoom({ selectedTimeOfDay: time }, 'selectedTimeOfDay');
   };
 
   const setWeather = async (weather: WeatherType) => {
     setCouple((prev) => ({ ...prev, selectedWeather: weather }));
-    try {
-      await cloudSetDoc(doc(db, 'couples', couple.id), { selectedWeather: weather }, { merge: true });
-    } catch (e) {
-      console.warn('Firestore setWeather:', e);
-    }
+    await patchCoupleRoom({ selectedWeather: weather }, 'selectedWeather');
   };
 
   // Add couple XP. Levels only move forward; spending XP never demotes.
@@ -2012,7 +2314,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // overwriting each other's last known balance.
   const addCoupleXP = async (amount: number) => {
     const base = coupleRef.current;
-    if (!base.id) return;
+    const roomId = cloudIdentity.coupleId;
+    if (!roomId) return;
     const optimisticXp = Math.max(0, (base.levelXp || 0) + amount);
     const nextCouple = {
       ...base,
@@ -2027,7 +2330,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!cloudSyncEnabled) return;
     try {
       await cloudSetDoc(
-        doc(db, 'couples', base.id),
+        doc(db, 'couples', roomId),
         { levelXp: increment(amount) },
         { merge: true }
       );
@@ -2056,11 +2359,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const togglePauseAllSanctions = async () => {
     const nextVal = !couple.allSanctionsPaused;
     setCouple((prev) => ({ ...prev, allSanctionsPaused: nextVal }));
-    try {
-      await cloudSetDoc(doc(db, 'couples', couple.id), { allSanctionsPaused: nextVal }, { merge: true });
-    } catch (e) {
-      console.warn('Firestore togglePauseAllSanctions:', e);
-    }
+    await patchCoupleRoom({ allSanctionsPaused: nextVal }, 'allSanctionsPaused');
   };
 
   const dismissNotification = () => setActiveNotification(null);
@@ -2093,6 +2392,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     allSanctionsPaused: couple.allSanctionsPaused || false,
     activeNotification,
     dismissNotification,
+    syncEvents,
+    syncAlert,
+    dismissSyncAlert,
+    lastSentReaction,
+    partnerUid,
+    cloudIdentity,
+    runSyncTest,
+    rebuildLocalCache,
     highFiveCelebrated,
     dismissHighFive,
     selectedDate,

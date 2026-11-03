@@ -54,6 +54,7 @@ export const CoupleView: React.FC = () => {
     deleteJournal,
     sendReaction,
     pairWithCode,
+    partnerUid,
   } = useApp();
 
   const [activeSubTab, setActiveSubTab] = useState<'rituals' | 'books' | 'journal' | 'challenge' | 'pairing'>('rituals');
@@ -241,7 +242,7 @@ export const CoupleView: React.FC = () => {
               <Heart className="w-4 h-4 text-rose-500 fill-rose-500" />
             </div>
             <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
-              {partnerUser ? 'Terhubung aktif' : 'Menunggu pasangan bergabung'} · Kode Undangan:{' '}
+              {partnerUid ? 'Terhubung aktif' : 'Menunggu pasangan bergabung'} · Kode Undangan:{' '}
               <span className="font-mono font-bold text-amber-600 dark:text-amber-400">{currentUser.inviteCode}</span>
             </p>
           </div>
@@ -251,7 +252,7 @@ export const CoupleView: React.FC = () => {
         <div className="flex items-center gap-2">
           <button type="button"
             onClick={() => sendReaction('❤️', 'Cinta & Dukungan', 'Selalu bangga sama kamu!')}
-            disabled={!partnerUser}
+            disabled={!partnerUid}
             className="flex items-center gap-1.5 min-h-[44px] px-3.5 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold shadow-xs transition-all active:scale-95"
           >
             <Heart className="w-3.5 h-3.5 fill-white" />

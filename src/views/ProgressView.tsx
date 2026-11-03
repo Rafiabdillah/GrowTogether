@@ -21,7 +21,7 @@ import { toLocalDateString } from '../data/mockData';
 export const ProgressView: React.FC = () => {
   const {
     currentUser,
-    partnerUser,
+    partnerUid,
     couple,
     sessions,
     logs,
@@ -64,10 +64,10 @@ export const ProgressView: React.FC = () => {
       day: label,
       'Baca (Kamu)': minutesFor(daySessions, currentUser.id, 'baca'),
       'Belajar (Kamu)': minutesFor(daySessions, currentUser.id, 'belajar'),
-      'Baca (Pasangan)': minutesFor(daySessions, partnerUser?.id, 'baca'),
-      'Belajar (Pasangan)': minutesFor(daySessions, partnerUser?.id, 'belajar'),
+      'Baca (Pasangan)': minutesFor(daySessions, partnerUid, 'baca'),
+      'Belajar (Pasangan)': minutesFor(daySessions, partnerUid, 'belajar'),
       'Habit (Kamu)': completedHabitsFor(key, currentUser.id),
-      'Habit (Pasangan)': completedHabitsFor(key, partnerUser?.id),
+      'Habit (Pasangan)': completedHabitsFor(key, partnerUid),
     };
   });
 
