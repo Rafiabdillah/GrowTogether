@@ -1,86 +1,74 @@
-# GrowTogether v1.1.1 — Sinkronisasi dua perangkat dibuktikan, bukan diassumsikan
+# GrowTogether v1.1.2 — Aturan Firestore ditulis ulang supaya query bisa jalan
 
-Versi ini khusus memperbaiki jalur sinkronisasi. Semua klaim di bawah sudah diuji dengan
-mesin aturan Firestore yang sebenarnya (emulator Auth + Firestore, `firestore.rules` repo ini
-dievaluasi dokumen per dokumen oleh dua klien Firebase berbeda): **52 dari 52 pemeriksaan lolos**.
+Versi ini memperbaiki penyebab sebenarnya dari "habit tidak muncul di HP pasangan".
+Akar masalahnya bukan kode aplikasi, melainkan **bentuk aturan keamanannya**, dan ini
+baru terbukti setelah diuji langsung ke proyek live.
 
-## Yang diperbaiki
+## Apa yang sebenarnya terjadi
 
-### 1. Habit / log / sesi / jurnal / check-in milik sendiri tidak lagi hilang seisi ruang
-Listener "data milikku" dulu hanya memfilter `ownerId == uid`. Aturan keamanan menuntut field
-`coupleId` ada di setiap dokumen sebelum boleh dibaca, dan **satu baris lama tanpa `coupleId`
-membuat seluruh query ditolak** — akibatnya daftar habit di kedua HP jadi kosong, bukan cuma
-satu item yang hilang. Sekarang semua query itu membawa `coupleId == ruang ini` juga, sehingga
-bisa dibuktikan aman oleh aturan dan tidak bisa "keracunan" satu baris lama:
+Firestore menilai permintaan **query (list)** berbeda dari pembacaan satu dokumen:
+query hanya boleh jalan kalau filter di query itu *sendiri* membuktikan kondisi aturan
+benar untuk semua baris yang mungkin kembali. Kondisi `allow read` kita selama ini
+bersandar pada `isCoupleMember()` yang memakai `get()`/`exists()` — dan hasil `get()`
+tidak pernah bisa dibuktikan oleh sebuah filter. Akibatnya:
 
-- `habits` → `ownerId` + `coupleId`
-- `logs`, `sessions`, `checkins` → `userId` + `coupleId`
-- `journals` → `authorId` + `coupleId`
+- setiap listener (habits, logs, sessions, journals, checkins, books, reactions,
+  agreements) **ditolak server**, bahkan ketika hasilnya nol baris;
+- `setDoc()` tetap tercatat "ok" di diagnostik karena Promise JS SDK resolve saat
+  tulisan masuk **antrean lokal**, bukan saat server menerima — jadi gejalanya
+  "katanya tersimpan, tapi tidak pernah sampai".
 
-### 2. Satu kode ruang untuk dua orang
-Kode ruang sekarang disimpan di dokumen ruang (`couples/{id}.roomCode`), bukan hanya di profil
-pembuat ruang. Semua layar (masuk/Pairing, Tab Pasangan, panduan sambutan, Pengaturan) membaca
-`roomCode` yang sama. Ruang lama ditambal otomatis. Artinya pasangan yang bergabung lewat kode
-bisa melihat, menyalin, dan membagikan kode yang benar untuk masuk kembali.
+Bukti dari proyek live (klien anonim nyata, hanya baca):
 
-### 3. Check-in malam tidak lagi gagal diam-diam
-Check-in yang dicatat atas nama akun lain dulu ditolak server tanpa pesan. Sekarang tulisan
-hanya dikirim bila pemiliknya akun di perangkat ini; kalau bukan, muncul di banner
-**Sinkronisasi** dengan sebabnya, bukan hilang tanpa jejak.
+| bentuk query | sebelum | sesudah |
+|---|---|---|
+| `habits` coupleId saja | ditolak | ditolak (harus ada filter privasi) |
+| `habits` coupleId + `isPrivate == false` | ditolak | **lolos** |
+| `habits` coupleId + `ownerId == me` | ditolak | **lolos** |
+| `logs`/`sessions`/`journals`/`checkins` (semua bentuk aplikasi) | ditolak | **lolos** |
+| `books`/`reactions`/`agreements` coupleId | ditolak | **lolos** |
+| `books` tanpa filter (enumerasi) | ditolak | **ditolak** (tetap aman) |
+| `users` di-list | ditolak | **ditolak** (tetap aman) |
 
-### 4. "Hapus data perangkat ini" bisa menuntaskan pekerjaannya
-Query penghapusan (habit, log, sesi, jurnal, check-in) ikut di-scope `coupleId`, supaya aturan
-tidak menolaknya. Sebelumnya penghapusan bisa berhenti di tengah jalan dan meninggalkan baris
-yang masih muncul di HP pasangan.
+## Perubahan aturan
 
-## Hasil uji aturan (ringkas)
+Setiap koleksi dipisah menjadi `allow get` (ketat, boleh `get()`/`exists()`) dan
+`allow list` (hanya field yang dibuktikan filter query). Kondisi `list` sekarang:
 
-Diuji dengan dua identitas Firebase terpisah di satu project yang sama:
+- `habits` → `ownerId == me` **atau** `isPrivate == false`
+- `logs`, `sessions`, `checkins` → `userId == me` **atau** `visibility == 'couple'` / `isShared == true`
+- `journals` → `authorId == me` **atau** `isShared == true`
+- `books`, `reactions`, `agreements` → `coupleId` ada di baris (query wajib memfilter coupleId)
 
-- bootstrap profil, 3 tulisan `createCouple`, baca `inviteCodes/{kode}`, klaim slot kedua,
-  kode palsu ditolak, ruang penuh tidak terbaca orang asing
-- setiap fitur bisa ditulis dari kedua perangkat: habit, log, sesi fokus, jurnal, buku,
-  reaksi (pelukan/semangat), kesepakatan, check-in malam
-- privasi pasangan: A melihat habit/log/sesi/jurnal/check-in bersama milik B, **tidak** melihat
-  yang privat; orang asing dan perangkat ketiga nol akses
-- penyalahgunaan ditolak: B mengubah log A, A memalsukan reaksi atas nama B, B mencatat check-in
-  A, non-anggota menulis kesepakatan, A menghapus habit milik B, pemindahan pemilik habit
-- akumulasi XP ruang memakai `increment` dari dua perangkat (35 = 20 + 15), patch target
-  mingguan dari sisi pasangan
-- keluar ruang: slot dilepas, kode ruang masih bisa dipakai perangkat baru, ruang penuh menolak
-  klaim kedua, penyerahan ruang ke anggota tersisa
+Tulis, ubah, dan hapus **tidak berubah** dan tetap diuji 52/52 di emulator.
 
-## Catatan teknis untuk developer
+## Konsekuensi keamanan dan penutupnya
 
-- `firebase.json` menambah blok `emulators` (auth 9199, firestore 8899, UI dimatikan). Tidak
-  dipakai saat build/deploy produksi.
-- `src/lib/firebase.ts` punya jembatan emulator yang hanya aktif bila
-  `VITE_FIREBASE_EMULATOR=1`; build rilis **tidak** menyetel ini, jadi tidak ada koneksi ke
-  alamat lokal di produksi.
-- Menemukan cacat emulator Firestore (v1.21.0 dan v1.22.0): aturan `list` yang menyentuh
-  `resource.data` selalu dilaporkan `Null value error`, padahal bentuk query yang sama sah di
-  produksi. Karena itu uji difokuskan ke operasi per-dokumen; perilaku push dua HP diverifikasi
-  terhadap proyek live.
+Karena `list` tidak bisa membuktikan keanggotaan lewat `get()`, id ruang kini menjadi
+*capability*: siapa pun yang tahu id-nya bisa melihat baris non-privat ruang itu. Maka
+`coupleId` tidak boleh lagi bisa ditebak. Dulu `couple_<uid10>_<timestamp>` (uid tidak
+rahasia, timestamp bisa ditebak); sekarang `couple_<uid10>_<28 karakter acak>` dari
+`crypto.getRandomValues`. Ruang lama tetap jalan, hanya ruang baru yang dapat id acak.
 
-## Yang masih harus kamu lakukan sekali saja (di Firebase Console)
+## Perubahan aplikasi
 
-Login tanpa akun belum diizinkan di project `growtogether-rafiabdillah`. Buka
-**Firebase Console → Authentication → Sign-in method → Anonymous → Aktifkan → Save.**
-Tanpa itu, perangkat baru tidak bisa masuk dan layar kode ruang menampilkan galat
-`auth/admin-restricted-operation`.
+- `watchServer()` sekarang menangkap **penolakan server** atas tulisan yang antre.
+  Sebelumnya `waitForPendingWrites()` yang reject tidak punya `.catch`, jadi tulisan
+  yang ditolak aturan hilang tanpa pesan sama sekali.
+- Banner untuk penolakan baca sekarang menyebut aturan Firestore, bukan "gagal menyimpan".
+- `createCouple()` memakai id ruang acak (lihat di atas).
 
-## Aturan Firestore
+## Status publikasi
 
-`firestore.rules` di repo ini sudah menjadi acuan pengujian di atas dan **tidak berubah** di
-versi ini. Kalau console-mu menampilkan aturan yang berbeda dari repo, salin seluruh isi
-`firestore.rules` ke **Firestore → Rules** lalu **Publish** (perangkat ini tidak bisa
-men-deploy aturan ke proyekmu).
+- Aturan baru **sudah di-publish ke proyek `growtogether-rafiabdillah`** lewat
+  `firebase deploy --only firestore:rules` (CLI-mu login sebagai rafiabdillah454@gmail.com).
+  Tidak perlu menempel manual ke Console lagi; repo dan konsol kini sama.
+- Build v1.1.2 naik ke GitHub Pages, tag `v1.1.2` + release dengan zip dan SHA256.
 
-## Checklist verifikasi dua HP (2 menit)
+## Yang perlu kamu lakukan
 
-1. HP A dan HP B sama-sama membuka aplikasi dan masuk lewat **kode ruang yang sama**.
-2. Di HP A tambahkan habit non-privat → dalam hitungan detik muncul di HP B tanpa reload.
-3. Centang habit tersebut di HP A → angka streak/XP di HP B ikut naik.
-4. Di HP B kirim **pelukan** → HP A menerima notifikasi/toast dan hitungan reaksi bertambah.
-5. Buat jurnal/check-in **privat** di HP A → tidak muncul di HP B.
-6. Bila ada banner merah, buka **Pengaturan → Sinkronisasi** untuk melihat fitur mana dan sebabnya.
+1. Tutup aplikasi di kedua HP, buka lagi (atau hapus data site GrowTogether di
+   setelan browser) supaya PWA mengambil versi baru.
+2. Buat **ruang baru** dengan kode ruang baru (ruang lama tetap bisa dipakai, tapi
+   id-nya yang lama dan bisa ditebak).
+3. Tes: tambah habit non-privat di HP A → harus muncul di HP B dalam hitungan detik.
