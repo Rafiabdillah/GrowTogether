@@ -16,6 +16,7 @@ import {
   ArrowRightLeft,
   Trash2,
   AlertTriangle,
+  UserMinus,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { ColorTheme } from '../types';
@@ -74,6 +75,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     logoutUser,
     switchAccount,
     deleteAccount,
+    leaveCouple,
     updateUserProfile,
     pairWithCode,
     showSimulatorToolbar,
@@ -98,6 +100,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [leaveError, setLeaveError] = useState('');
   const [accountBusy, setAccountBusy] = useState(false);
   const [accountError, setAccountError] = useState('');
   const isConnected = !!partnerUser || !!couple.user2Id;
@@ -110,6 +114,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setShowResetConfirm(false);
       setShowDeleteConfirm(false);
       setDeleteConfirmText('');
+      setShowLeaveConfirm(false);
+      setLeaveError('');
       setAccountBusy(false);
       setAccountError('');
       setPairError('');
@@ -205,6 +211,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       onClose();
     } catch (err) {
       setAccountError(friendlyAccountError(err));
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  const handleLeaveCouple = async () => {
+    setLeaveError('');
+    setAccountBusy(true);
+    try {
+      await leaveCouple();
+      setShowLeaveConfirm(false);
+      onClose();
+    } catch (err) {
+      setLeaveError(
+        err instanceof Error ? err.message : 'Gagal keluar dari pasangan. Coba lagi.'
+      );
     } finally {
       setAccountBusy(false);
     }
@@ -495,6 +517,73 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   Buka Panduan Sambutan Pasangan
                 </button>
               </div>
+
+              {!isDemoMode && currentUser.coupleId && (
+                <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700">
+                  <div className="flex items-center gap-2 text-stone-800 dark:text-stone-200">
+                    <UserMinus className="w-4 h-4 text-stone-500 shrink-0" aria-hidden="true" />
+                    <h4 className="text-xs font-bold">
+                      {isConnected ? 'Keluar dari Pasangan' : 'Batalkan Ruang Bersama'}
+                    </h4>
+                  </div>
+                  <p className="text-xs text-stone-500 mt-1.5 leading-relaxed">
+                    {isConnected
+                      ? 'Putuskan ruang bersama tanpa menghapus akunmu. Habit bersama, buku, dan kesepakatan tetap tersimpan untuk pasangan.'
+                      : 'Ruang ini belum diisi pasangan. Membatalkannya hanya menghapus ruang kosong, bukan akunmu.'}
+                  </p>
+
+                  {!showLeaveConfirm ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLeaveError('');
+                        setShowLeaveConfirm(true);
+                      }}
+                      disabled={accountBusy}
+                      className="mt-3 w-full min-h-[44px] py-2 px-3 rounded-xl bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300 font-semibold text-xs hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
+                    >
+                      <UserMinus className="w-4 h-4" aria-hidden="true" />
+                      {isConnected ? 'Keluar dari Pasangan' : 'Batalkan Ruang Bersama'}
+                    </button>
+                  ) : (
+                    <div className="mt-3 p-3 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 space-y-2">
+                      <p className="text-[11px] leading-relaxed text-stone-600 dark:text-stone-300">
+                        {isConnected
+                          ? 'Kamu akan kembali ke layar ajakan pasangan. Kamu bisa membuat atau bergabung ke ruang baru kapan saja.'
+                          : 'Ruang kosong akan dihapus dan kamu kembali ke layar ajakan pasangan.'}
+                      </p>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={handleLeaveCouple}
+                          disabled={accountBusy}
+                          className="flex-1 min-h-[44px] rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 font-bold text-xs flex items-center justify-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          {accountBusy
+                            ? 'Memproses...'
+                            : isConnected
+                              ? 'Ya, Keluar dari Pasangan'
+                              : 'Ya, Batalkan Ruang'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowLeaveConfirm(false)}
+                          disabled={accountBusy}
+                          className="min-h-[44px] px-3 rounded-xl bg-stone-200 dark:bg-stone-700 text-stone-800 dark:text-stone-200 text-xs font-medium disabled:opacity-60"
+                        >
+                          Batal
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {leaveError && (
+                    <p role="alert" className="mt-2 text-[11px] text-rose-700 dark:text-rose-400">
+                      {leaveError}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -748,6 +837,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         Keluar
                       </button>
                     </div>
+
+                    {!isDemoMode && currentUser.coupleId && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAccountError('');
+                          setLeaveError('');
+                          setShowLeaveConfirm(true);
+                          setActiveTab('pair');
+                        }}
+                        disabled={accountBusy}
+                        className="w-full min-h-[44px] py-2 px-3 rounded-xl bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300 font-semibold text-xs hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        <UserMinus className="w-4 h-4" aria-hidden="true" />
+                        {isConnected ? 'Keluar dari Pasangan' : 'Batalkan Ruang Bersama'}
+                      </button>
+                    )}
 
                     {!showDeleteConfirm ? (
                       <button

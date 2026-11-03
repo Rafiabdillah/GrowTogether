@@ -58,6 +58,7 @@ interface AppContextType {
   logoutUser: () => Promise<void>;
   switchAccount: () => Promise<void>;
   deleteAccount: () => Promise<void>;
+  leaveCouple: () => Promise<void>;
   
   currentUser: UserProfile;
   partnerUser: UserProfile | null;
@@ -555,6 +556,79 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsProfileLoading(false);
     resetCloudSessionState();
     setCurrentUserId('user_rama_01');
+  };
+
+  // Leave the shared room without deleting the account. The partner keeps the
+  // room (and its shared data); the leaver can create or join a room again.
+  const leaveCouple = async (): Promise<void> => {
+    const user = auth.currentUser;
+    if (!user) throw new Error('Sesi berakhir. Silakan masuk ulang.');
+    if (isDemoMode) throw new Error('Mode demo tidak memakai ruang bersama.');
+
+    cloudSyncEnabled = true;
+
+    const mySnap = await getDoc(doc(db, 'users', user.uid)).catch(() => null);
+    const myProfile = (mySnap?.data() as Partial<UserProfile> | undefined) ?? currentUser;
+    const coupleId = myProfile.coupleId;
+    const inviteCode = myProfile.inviteCode || currentUser.inviteCode;
+    if (!coupleId) return;
+
+    const roomSnap = await getDoc(doc(db, 'couples', coupleId)).catch(() => null);
+    if (roomSnap?.exists()) {
+      const room = normalizeCouple(roomSnap.id, roomSnap.data() as Partial<Couple>);
+      const partnerId = room.user1Id === user.uid ? room.user2Id : room.user1Id;
+      const now = new Date().toISOString();
+      try {
+        if (room.user1Id === user.uid && partnerId) {
+          // Hand the room over so the partner is not locked out of their data.
+          const inheritedProfile = usersState[partnerId] ?? room.user2Profile ?? null;
+          await firestoreSetDoc(
+            doc(db, 'couples', coupleId),
+            {
+              user1Id: partnerId,
+              user1Profile: inheritedProfile ?? deleteField(),
+              user2Id: '',
+              user2Profile: deleteField(),
+              updatedAt: now,
+            },
+            { merge: true }
+          );
+        } else if (room.user2Id === user.uid) {
+          await firestoreSetDoc(
+            doc(db, 'couples', coupleId),
+            { user2Id: '', user2Profile: deleteField(), updatedAt: now },
+            { merge: true }
+          );
+        } else if (!room.user2Id) {
+          await firestoreDeleteDoc(doc(db, 'couples', coupleId));
+        }
+      } catch (e) {
+        console.warn('leaveCouple room:', e);
+        throw new Error('Gagal keluar dari ruang bersama. Periksa koneksi lalu coba lagi.');
+      }
+    }
+
+    // The pointer must go too, otherwise somebody could join using this code
+    // and end up in the partner's room. The profile keeps its code for later.
+    if (inviteCode) {
+      await firestoreDeleteDoc(doc(db, 'inviteCodes', inviteCode)).catch((e) =>
+        console.warn('leaveCouple invite code:', e)
+      );
+    }
+
+    await cloudSetDoc(
+      doc(db, 'users', user.uid),
+      { coupleId: deleteField() },
+      { merge: true }
+    );
+
+    setUsersState((prev) => {
+      const mine = prev[user.uid] ?? currentUser;
+      return { ...prev, [user.uid]: { ...mine, coupleId: undefined } };
+    });
+    setCouple(emptyCouple());
+    clearLocalCollections();
+    setActiveNotification(null);
   };
 
   const setupUserProfile = async (user: User) => {
@@ -2002,6 +2076,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     logoutUser,
     switchAccount,
     deleteAccount,
+    leaveCouple,
     setupUserProfile,
     currentUser,
     partnerUser,

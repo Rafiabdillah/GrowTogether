@@ -54,7 +54,7 @@ Buka `http://localhost:4173`. Login Google dari `localhost` biasanya sudah diizi
 
 ## Build yang disertakan
 
-Arsip `GrowTogether-1.0.5-web.zip` berisi hasil build statis (`dist/`) dan panduan ini. Ekstrak lalu unggah isi foldernya ke **root** hosting HTTPS apa pun (Firebase Hosting, Netlify, Vercel, Nginx), atau ikuti `README.md` untuk deploy ke Firebase Hosting dengan `npm run deploy:hosting`.
+Arsip `GrowTogether-1.0.6-web.zip` berisi hasil build statis (`dist/`) dan panduan ini. Ekstrak lalu unggah isi foldernya ke **root** hosting HTTPS apa pun (Firebase Hosting, Netlify, Vercel, Nginx), atau ikuti `README.md` untuk deploy ke Firebase Hosting dengan `npm run deploy:hosting`.
 
 Build zip memakai base path `/`, jadi paling mudah di-hosting di root domain/subdomain. Untuk hosting di subfolder (seperti GitHub Pages `/GrowTogether/`), build ulang dengan:
 
