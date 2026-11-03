@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Heart,
   Sparkles,
@@ -43,8 +43,22 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClos
   const [partnerCodeInput, setPartnerCodeInput] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [pairError, setPairError] = useState('');
+  const wasOpenRef = useRef(false);
 
   const dialogRef = useDialog<HTMLDivElement>(isOpen, onClose);
+
+  // The modal stays mounted between visits, so each opening starts a fresh guide.
+  useEffect(() => {
+    if (isOpen && !wasOpenRef.current) {
+      setStep(1);
+      setName(currentUser.displayName || '');
+      setSelectedTheme(currentUser.colorTheme || 'coral');
+      setPartnerCodeInput('');
+      setCopiedCode(false);
+      setPairError('');
+    }
+    wasOpenRef.current = isOpen;
+  }, [isOpen, currentUser.displayName, currentUser.colorTheme]);
 
   if (!isOpen) return null;
 
@@ -118,8 +132,16 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClos
     onClose();
   };
 
-  const handleFinishDemo = () => {
+  const handleFinishDemo = async () => {
     loadDemoData();
+    // loadDemoData() restores the sample personas; carry over the identity the
+    // user just entered so the demo does not silently swap their name/theme.
+    if (name.trim()) {
+      await updateUserProfile(currentUser.id, {
+        displayName: name.trim(),
+        colorTheme: selectedTheme,
+      });
+    }
     onClose();
   };
 
@@ -136,6 +158,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClos
           </div>
           <button type="button"
             onClick={onClose}
+            aria-label="Tutup panduan sambutan"
             className="min-h-[44px] min-w-[44px] flex items-center justify-center text-stone-500 hover:text-stone-700 dark:hover:text-stone-200 p-1 rounded-lg"
           >
             <X className="w-4 h-4" />
