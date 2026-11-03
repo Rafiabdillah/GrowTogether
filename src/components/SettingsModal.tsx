@@ -89,7 +89,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   );
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
-  const { isInstallable, isInstalled, install } = usePWAInstall();
+  const { isInstallable, isInstalled, isIOS, isInAppBrowser, install } = usePWAInstall();
   const [partnerInputCode, setPartnerInputCode] = useState('');
   const [pairError, setPairError] = useState('');
   const [pairSuccess, setPairSuccess] = useState(false);
@@ -637,6 +637,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {activeTab === 'install' && (
             <div className="space-y-4">
+              {isInAppBrowser && (
+                <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40">
+                  <div className="flex items-center gap-2 text-rose-700 dark:text-rose-400">
+                    <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden="true" />
+                    <h4 className="text-xs font-bold">Kamu membuka ini dari dalam aplikasi lain</h4>
+                  </div>
+                  <p className="text-xs text-rose-800/80 dark:text-rose-300/80 mt-1.5 leading-relaxed">
+                    Browser bawaan chat/sosmed (WhatsApp, Instagram, TikTok, dan sejenisnya) tidak
+                    bisa memasang aplikasi. Salin tautannya lewat tombol di bawah, lalu buka di
+                    Chrome (Android) atau Safari (iPhone) dan pasang dari sana.
+                  </p>
+                </div>
+              )}
+
               <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40">
                 <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300">
                   <Download className="w-4 h-4 shrink-0" aria-hidden="true" />
@@ -669,6 +683,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </p>
                 )}
               </div>
+
+              {!isIOS && (
+                <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700">
+                  <div className="flex items-center gap-2 text-stone-800 dark:text-stone-200">
+                    <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" aria-hidden="true" />
+                    <h4 className="text-xs font-bold">Muncul "Tidak dapat membuka aplikasi"?</h4>
+                  </div>
+                  <p className="text-[11px] text-stone-500 mt-1 leading-relaxed">
+                    Itu gangguan pemasangan di Chrome/Play Services, bukan di aplikasinya. Coba
+                    berurutan:
+                  </p>
+                  <ol className="mt-2 text-xs text-stone-600 dark:text-stone-300 space-y-1.5 list-decimal list-inside">
+                    <li>
+                      Cari ikon <strong>GrowTogether</strong> di layar utama atau daftar aplikasi.
+                      Bila ada, buka dari sana.
+                    </li>
+                    <li>
+                      Bila ada tapi tidak mau dibuka: tahan ikonnya → <strong>Hapus</strong>, lalu
+                      ulangi pemasangan dan buka lewat ikonnya.
+                    </li>
+                    <li>
+                      Perbarui <strong>Chrome</strong> dan <strong>Google Play Services</strong> di
+                      Play Store, mulai ulang HP, lalu ulangi pemasangan.
+                    </li>
+                    <li>
+                      Bila tetap gagal: menu ⋮ →{' '}
+                      <strong>Tambahkan ke layar utama</strong>. Pintasan ini bisa memakai
+                      aplikasi secara penuh dan tetap diperbarui otomatis.
+                    </li>
+                  </ol>
+                </div>
+              )}
 
               <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700">
                 <div className="flex items-center gap-2 text-stone-800 dark:text-stone-200">

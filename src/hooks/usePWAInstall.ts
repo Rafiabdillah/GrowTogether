@@ -9,6 +9,7 @@ export function usePWAInstall() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalled, setIsInstalled] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
+  const [isInAppBrowser, setIsInAppBrowser] = useState(false);
 
   useEffect(() => {
     // Detect standalone mode (already installed)
@@ -23,6 +24,13 @@ export function usePWAInstall() {
       /iphone|ipad|ipod/.test(userAgent) ||
       (window.navigator.platform === 'MacIntel' && window.navigator.maxTouchPoints > 1);
     setIsIOS(isIOSDevice);
+
+    // Social apps ship their own embedded browser without any install UI.
+    setIsInAppBrowser(
+      /fbav|fban|instagram|line\/|whatsapp|telegram|snapchat|musical_ly|bytedance|tiktok/.test(
+        userAgent
+      )
+    );
 
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
@@ -59,6 +67,7 @@ export function usePWAInstall() {
     isInstallable: !!deferredPrompt,
     isInstalled,
     isIOS,
+    isInAppBrowser,
     install,
   };
 }
