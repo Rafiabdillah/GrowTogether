@@ -57,6 +57,20 @@ service cloud.firestore {
         && isCoupleMember(userData(userId).coupleId);
     }
 
+    // Queries are the hard part. Firestore refuses to run a list request unless
+    // the query's own filters prove the rule true for every row it could return,
+    // and a get()/exists() result can never be proven by a filter. So each list
+    // condition below uses only fields the app filters on. Keep these paired
+    // with the where() clauses in src/context/AppContext.tsx:
+    //   habits    -> coupleId + (isPrivate == false | ownerId == me)
+    //   logs      -> coupleId + (visibility == 'couple' | userId == me)
+    //   sessions  -> coupleId + (visibility == 'couple' | userId == me)
+    //   journals  -> coupleId + (isShared == true | authorId == me)
+    //   checkins  -> coupleId + (isShared == true | userId == me)
+    //   books, reactions, agreements -> coupleId equality only
+    // A query whose filters cannot prove one of these conditions is refused
+    // before it runs, which is also what blocks unfiltered enumeration: a
+    // bare getDocs(collection) has no predicate to prove 'coupleId' exists.
     // Default deny everything else
     match /{document=**} {
       allow read, write: if false;
@@ -136,11 +150,17 @@ service cloud.firestore {
 
     // Habits: owners always see their own rows; the partner only sees non-private ones.
     match /habits/{habitId} {
-      allow read: if isSignedIn() && isValidId(habitId)
+      allow get: if isSignedIn() && isValidId(habitId)
         && 'coupleId' in existing()
         && (
           existing().ownerId == request.auth.uid
           || (isCoupleMember(existing().coupleId) && existing().isPrivate == false)
+        );
+      allow list: if isSignedIn()
+        && 'coupleId' in existing()
+        && (
+          existing().ownerId == request.auth.uid
+          || existing().isPrivate == false
         );
       allow create: if isSignedIn()
         && incoming().ownerId == request.auth.uid
@@ -159,11 +179,17 @@ service cloud.firestore {
     // Habit logs: each user always reads their own rows; the partner only reads
     // rows explicitly marked as couple-visible (private habit logs stay private).
     match /logs/{logId} {
-      allow read: if isSignedIn() && isValidId(logId)
+      allow get: if isSignedIn() && isValidId(logId)
         && 'coupleId' in existing()
         && (
           existing().userId == request.auth.uid
           || (isCoupleMember(existing().coupleId) && existing().visibility == 'couple')
+        );
+      allow list: if isSignedIn()
+        && 'coupleId' in existing()
+        && (
+          existing().userId == request.auth.uid
+          || existing().visibility == 'couple'
         );
       allow create: if isSignedIn()
         && incoming().userId == request.auth.uid
@@ -180,11 +206,17 @@ service cloud.firestore {
 
     // Focus sessions (sessions tied to a private habit only belong to their owner)
     match /sessions/{sessionId} {
-      allow read: if isSignedIn() && isValidId(sessionId)
+      allow get: if isSignedIn() && isValidId(sessionId)
         && 'coupleId' in existing()
         && (
           existing().userId == request.auth.uid
           || (isCoupleMember(existing().coupleId) && existing().visibility == 'couple')
+        );
+      allow list: if isSignedIn()
+        && 'coupleId' in existing()
+        && (
+          existing().userId == request.auth.uid
+          || existing().visibility == 'couple'
         );
       allow create: if isSignedIn()
         && incoming().userId == request.auth.uid
@@ -195,11 +227,13 @@ service cloud.firestore {
         && isCoupleMember(existing().coupleId);
     }
 
-    // Shared reading list
+    // Shared reading list: the whole room sees it, so a query must pin one coupleId.
     match /books/{bookId} {
-      allow read: if isSignedIn() && isValidId(bookId)
+      allow get: if isSignedIn() && isValidId(bookId)
         && 'coupleId' in existing()
         && isCoupleMember(existing().coupleId);
+      allow list: if isSignedIn()
+        && 'coupleId' in existing();
       allow create: if isSignedIn()
         && incoming().addedById == request.auth.uid
         && incoming().coupleId is string
@@ -214,11 +248,17 @@ service cloud.firestore {
 
     // Weekly journals: authors always see their own; unshared entries stay private.
     match /journals/{journalId} {
-      allow read: if isSignedIn() && isValidId(journalId)
+      allow get: if isSignedIn() && isValidId(journalId)
         && 'coupleId' in existing()
         && (
           existing().authorId == request.auth.uid
           || (isCoupleMember(existing().coupleId) && existing().isShared == true)
+        );
+      allow list: if isSignedIn()
+        && 'coupleId' in existing()
+        && (
+          existing().authorId == request.auth.uid
+          || existing().isShared == true
         );
       allow create: if isSignedIn()
         && incoming().authorId == request.auth.uid
@@ -229,11 +269,13 @@ service cloud.firestore {
         && isCoupleMember(existing().coupleId);
     }
 
-    // Encouragement reactions
+    // Encouragement reactions: the room sees all of them, query must pin coupleId.
     match /reactions/{reactionId} {
-      allow read: if isSignedIn() && isValidId(reactionId)
+      allow get: if isSignedIn() && isValidId(reactionId)
         && 'coupleId' in existing()
         && isCoupleMember(existing().coupleId);
+      allow list: if isSignedIn()
+        && 'coupleId' in existing();
       allow create: if isSignedIn()
         && incoming().senderId == request.auth.uid
         && incoming().coupleId is string
@@ -246,9 +288,11 @@ service cloud.firestore {
 
     // Agreements (Brankas Kesepakatan)
     match /agreements/{agreementId} {
-      allow read: if isSignedIn() && isValidId(agreementId)
+      allow get: if isSignedIn() && isValidId(agreementId)
         && 'coupleId' in existing()
         && isCoupleMember(existing().coupleId);
+      allow list: if isSignedIn()
+        && 'coupleId' in existing();
       allow create: if isSignedIn()
         && incoming().creatorId == request.auth.uid
         && incoming().coupleId is string
@@ -263,11 +307,17 @@ service cloud.firestore {
 
     // Nightly check-ins: unshared check-ins stay private to their author.
     match /checkins/{checkinId} {
-      allow read: if isSignedIn() && isValidId(checkinId)
+      allow get: if isSignedIn() && isValidId(checkinId)
         && 'coupleId' in existing()
         && (
           existing().userId == request.auth.uid
           || (isCoupleMember(existing().coupleId) && existing().isShared == true)
+        );
+      allow list: if isSignedIn()
+        && 'coupleId' in existing()
+        && (
+          existing().userId == request.auth.uid
+          || existing().isShared == true
         );
       allow create: if isSignedIn()
         && incoming().userId == request.auth.uid

@@ -30,6 +30,12 @@ export function explainSyncEvent(event: SyncEvent): string {
   const message = event.message ?? '';
   const target = event.kind === 'listen' ? `data ${event.target}` : event.target;
   if (/permission-denied|Missing or insufficient/i.test(message)) {
+    if (event.kind === 'listen') {
+      return `Aturan Firestore menolak pembacaan ${target}. Aturan yang aktif di konsol Firebase kemungkinan bukan versi repo (firestore.rules).`;
+    }
+    if (/server menolak tulisan/.test(message)) {
+      return `Server menolak menyimpan ${target} — aturan Firestore yang aktif tidak mengizinkan tulisan ini.`;
+    }
     return `Akses ditolak aturan database saat menyimpan ${target}.`;
   }
   if (/unavailable|offline|network|Failed to get documentation/i.test(message)) {

@@ -237,16 +237,28 @@ function watchServerAck(referencePath: string) {
   void Promise.race([
     waitForPendingWrites(db).then(() => 'acked' as const),
     unconfirmed,
-  ]).then((result) => {
-    if (result === 'acked') return;
-    emitSyncEvent({
-      at: Date.now(),
-      kind: 'write',
-      target: referencePath,
-      ok: false,
-      message: 'unconfirmed: perubahan masih tersimpan di perangkat dan belum diterima server',
+  ])
+    .then((result) => {
+      if (result === 'acked') return;
+      emitSyncEvent({
+        at: Date.now(),
+        kind: 'write',
+        target: referencePath,
+        ok: false,
+        message: 'unconfirmed: perubahan masih tersimpan di perangkat dan belum diterima server',
+      });
+    })
+    .catch((error) => {
+      // waitForPendingWrites rejects with the server's verdict on the queued
+      // write, which is the only place a rules rejection ever becomes visible.
+      emitSyncEvent({
+        at: Date.now(),
+        kind: 'write',
+        target: referencePath,
+        ok: false,
+        message: `server menolak tulisan: ${syncErrorText(error)}`,
+      });
     });
-  });
 }
 
 async function cloudSetDoc(
@@ -323,6 +335,18 @@ function generateInviteCode(): string {
     }
   }
   return code;
+}
+
+// A room id is a read capability: the list rules cannot prove membership with
+// get(), so unguessability is what keeps a stranger from listing a room.
+function randomSuffix(): string {
+  const values = new Uint32Array(4);
+  if (typeof crypto !== 'undefined' && 'getRandomValues' in crypto) {
+    crypto.getRandomValues(values);
+  } else {
+    for (let i = 0; i < values.length; i++) values[i] = Math.floor(Math.random() * 0xffffffff);
+  }
+  return Array.from(values, (v) => v.toString(36).padStart(7, '0')).join('');
 }
 
 const DISPLAY_NAME_KEY = 'gt_display_name';
@@ -1969,7 +1993,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const now = new Date().toISOString();
     const inviteCode = me.inviteCode || generateInviteCode();
-    const coupleId = `couple_${authUser.uid.slice(0, 10)}_${Date.now()}`;
+    const coupleId = `couple_${authUser.uid.slice(0, 10)}_${randomSuffix()}`;
     const newCouple: Couple = {
       id: coupleId,
       user1Id: me.id,
