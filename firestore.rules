@@ -97,6 +97,18 @@ service cloud.firestore {
           (isOpenCouple(coupleId)
             && incoming().user1Id == existing().user1Id
             && incoming().user2Id == request.auth.uid)
+          ||
+          // A member removing their own slot (leaving without ending the room).
+          (existing().user2Id == request.auth.uid
+            && incoming().user1Id == existing().user1Id
+            && incoming().user2Id == '')
+          ||
+          // The owner leaving hands the room over to the remaining partner.
+          (existing().user1Id == request.auth.uid
+            && existing().user2Id != null
+            && existing().user2Id != ''
+            && incoming().user1Id == existing().user2Id
+            && incoming().user2Id == '')
         );
       allow delete: if isSignedIn() && isValidId(coupleId) && isCoupleMember(coupleId);
     }

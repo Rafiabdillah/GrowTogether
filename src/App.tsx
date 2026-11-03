@@ -46,6 +46,7 @@ function MainAppContent() {
     setIsOnboardingOpen,
     authUser,
     isAuthLoading,
+    isProfileLoading,
     isDemoMode,
     currentUser,
     couple,
@@ -66,7 +67,9 @@ function MainAppContent() {
   const isLoadingCouple =
     !isDemoMode && !!authUser && !!currentUser.coupleId && couple.id !== currentUser.coupleId;
 
-  if (isAuthLoading || isLoadingCouple) {
+  // Until the profile resolves we cannot know whether this account already has
+  // a room, so never show the pairing screen before it does.
+  if (isAuthLoading || isProfileLoading || isLoadingCouple) {
     return (
       <div className="min-h-dvh bg-[#FBFBF9] dark:bg-[#121417] flex items-center justify-center">
         <div className="text-center space-y-2">

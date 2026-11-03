@@ -13,11 +13,15 @@ import {
   Download,
   Smartphone,
   Monitor,
+  ArrowRightLeft,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { ColorTheme } from '../types';
 import { useDialog } from '../hooks/useDialog';
 import { usePWAInstall } from '../hooks/usePWAInstall';
+import { friendlyAccountError } from '../lib/authErrors';
 
 const copyText = async (text: string): Promise<boolean> => {
   try {
@@ -68,6 +72,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     authUser,
     isDemoMode,
     logoutUser,
+    switchAccount,
+    deleteAccount,
     updateUserProfile,
     pairWithCode,
     showSimulatorToolbar,
@@ -90,6 +96,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [editTheme, setEditTheme] = useState<ColorTheme>(currentUser.colorTheme);
 
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [accountBusy, setAccountBusy] = useState(false);
+  const [accountError, setAccountError] = useState('');
   const isConnected = !!partnerUser || !!couple.user2Id;
   const dialogRef = useDialog<HTMLDivElement>(isOpen, onClose);
 
@@ -98,6 +108,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setEditName(currentUser.displayName);
       setEditTheme(currentUser.colorTheme);
       setShowResetConfirm(false);
+      setShowDeleteConfirm(false);
+      setDeleteConfirmText('');
+      setAccountBusy(false);
+      setAccountError('');
       setPairError('');
       setPairSuccess(false);
     }
@@ -165,6 +179,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const handleLogout = async () => {
     await logoutUser();
     onClose();
+  };
+
+  const handleSwitchAccount = async () => {
+    setAccountError('');
+    setAccountBusy(true);
+    try {
+      await switchAccount();
+      onClose();
+    } catch (err) {
+      setAccountError(friendlyAccountError(err));
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (deleteConfirmText.trim().toUpperCase() !== 'HAPUS') return;
+    setAccountError('');
+    setAccountBusy(true);
+    try {
+      await deleteAccount();
+      setShowDeleteConfirm(false);
+      setDeleteConfirmText('');
+      onClose();
+    } catch (err) {
+      setAccountError(friendlyAccountError(err));
+    } finally {
+      setAccountBusy(false);
+    }
   };
 
   const handleConfirmReset = () => {
@@ -674,13 +717,113 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     ? 'Kamu sedang memakai mode demo lokal. Data tidak tersinkron ke perangkat lain.'
                     : authUser?.email || 'Masuk dengan Google untuk sinkronisasi.'}
                 </p>
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  className="mt-3 py-2 px-3 rounded-xl bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300 font-semibold text-xs hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
-                >
-                  {isDemoMode ? 'Keluar dari Mode Demo' : 'Keluar dari Akun'}
-                </button>
+
+                {isDemoMode ? (
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="mt-3 min-h-[44px] py-2 px-3 rounded-xl bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300 font-semibold text-xs hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
+                  >
+                    Keluar dari Mode Demo
+                  </button>
+                ) : (
+                  <div className="mt-3 space-y-2">
+                    <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSwitchAccount}
+                        disabled={accountBusy}
+                        className="min-h-[44px] py-2 px-3 rounded-xl bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300 font-semibold text-xs hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        <ArrowRightLeft className="w-4 h-4" aria-hidden="true" />
+                        Ganti Akun
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleLogout}
+                        disabled={accountBusy}
+                        className="min-h-[44px] py-2 px-3 rounded-xl bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300 font-semibold text-xs hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        <LogOut className="w-4 h-4" aria-hidden="true" />
+                        Keluar
+                      </button>
+                    </div>
+
+                    {!showDeleteConfirm ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAccountError('');
+                          setDeleteConfirmText('');
+                          setShowDeleteConfirm(true);
+                        }}
+                        disabled={accountBusy}
+                        className="w-full min-h-[44px] py-2 px-3 rounded-xl bg-white dark:bg-stone-900 border border-rose-300 dark:border-rose-900 text-rose-700 dark:text-rose-400 font-semibold text-xs hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        <Trash2 className="w-4 h-4" aria-hidden="true" />
+                        Hapus Akun
+                      </button>
+                    ) : (
+                      <div className="p-3 rounded-xl border border-rose-300 dark:border-rose-900 bg-rose-50/70 dark:bg-rose-950/20 space-y-2">
+                        <div className="flex items-start gap-2 text-rose-700 dark:text-rose-400">
+                          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
+                          <p className="text-[11px] leading-relaxed">
+                            Semua habit, log, jurnal, check-in, dan profilmu dihapus permanen.
+                            {couple.user2Id
+                              ? ' Data kalian berdua tetap tinggal di ruang pasanganmu, dan ruang itu menjadi milik pasangan.'
+                              : ' Ruang bersamamu ikut dihapus karena belum ada pasangan.'}
+                          </p>
+                        </div>
+                        <label htmlFor="delete-confirm" className="block text-[11px] font-semibold text-stone-700 dark:text-stone-300">
+                          Ketik <strong>HAPUS</strong> untuk konfirmasi
+                        </label>
+                        <input
+                          id="delete-confirm"
+                          type="text"
+                          value={deleteConfirmText}
+                          onChange={(e) => setDeleteConfirmText(e.target.value)}
+                          autoCapitalize="characters"
+                          autoComplete="off"
+                          disabled={accountBusy}
+                          className="w-full min-h-[44px] px-3 rounded-xl border border-rose-300 dark:border-rose-800 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 text-sm uppercase font-mono"
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={handleDeleteAccount}
+                            disabled={accountBusy || deleteConfirmText.trim().toUpperCase() !== 'HAPUS'}
+                            className="flex-1 min-h-[44px] rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                            {accountBusy ? 'Menghapus...' : 'Hapus permanen'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowDeleteConfirm(false);
+                              setDeleteConfirmText('');
+                            }}
+                            disabled={accountBusy}
+                            className="min-h-[44px] px-3 rounded-xl bg-stone-200 dark:bg-stone-700 text-stone-800 dark:text-stone-200 text-xs font-medium disabled:opacity-60"
+                          >
+                            Batal
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {accountBusy && (
+                      <p role="status" className="text-[11px] text-stone-500 dark:text-stone-400">
+                        Memproses akun... jangan tutup jendela ini.
+                      </p>
+                    )}
+                    {accountError && (
+                      <p role="alert" className="text-[11px] text-rose-700 dark:text-rose-400">
+                        {accountError}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}

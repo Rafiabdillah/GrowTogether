@@ -5,7 +5,9 @@ import {
   signInWithPopup,
   signInWithRedirect,
   getRedirectResult,
+  reauthenticateWithPopup,
   signOut,
+  User,
 } from 'firebase/auth';
 import {
   getFirestore,
@@ -36,6 +38,8 @@ try {
 export const db = firestoreInstance;
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+// Always let the user pick which Google account to use (switch account support).
+googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 export async function loginWithGoogle() {
   try {
@@ -60,6 +64,13 @@ export async function consumeRedirectResult() {
 
 export async function logoutUser() {
   await signOut(auth);
+}
+
+// Deleting an account needs a fresh sign-in. The popup is required here because
+// Firebase rejects account deletion after a stale login.
+export async function reauthenticateWithGoogle(user: User) {
+  const result = await reauthenticateWithPopup(user, googleProvider);
+  return result.user;
 }
 
 export enum OperationType {

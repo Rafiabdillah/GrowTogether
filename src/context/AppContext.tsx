@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import confetti from 'canvas-confetti';
-import { onAuthStateChanged, User } from 'firebase/auth';
+import { onAuthStateChanged, deleteUser, User } from 'firebase/auth';
 import {
   UserProfile,
   Couple,
@@ -31,7 +31,7 @@ import {
   toLocalDateString,
 } from '../data/mockData';
 import { sound } from '../lib/audio';
-import { db, auth, loginWithGoogle, logoutUser as firebaseLogoutUser } from '../lib/firebase';
+import { db, auth, loginWithGoogle, reauthenticateWithGoogle, logoutUser as firebaseLogoutUser } from '../lib/firebase';
 import {
   collection,
   doc,
@@ -41,17 +41,23 @@ import {
   query,
   where,
   getDoc,
+  getDocs,
   deleteField,
+  increment,
+  runTransaction,
 } from 'firebase/firestore';
 
 interface AppContextType {
   // Auth
   authUser: User | null;
   isAuthLoading: boolean;
+  isProfileLoading: boolean;
   isDemoMode: boolean;
   loginWithGoogle: () => Promise<User | undefined>;
   enterDemoMode: () => void;
   logoutUser: () => Promise<void>;
+  switchAccount: () => Promise<void>;
+  deleteAccount: () => Promise<void>;
   
   currentUser: UserProfile;
   partnerUser: UserProfile | null;
@@ -172,6 +178,14 @@ function writeStorage(key: string, value: string) {
   }
 }
 
+function removeStorage(key: string) {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // Same as above: nothing to clean up if storage is unavailable.
+  }
+}
+
 // Demo mode keeps everything local; cloud writes are skipped instead of being
 // rejected by security rules.
 let cloudSyncEnabled = false;
@@ -227,6 +241,7 @@ function generateInviteCode(): string {
 }
 
 function normalizeCouple(id: string, data: Partial<Couple>): Couple {
+  const levelXp = data.levelXp ?? 0;
   return {
     ...SEED_COUPLE,
     ...data,
@@ -237,8 +252,9 @@ function normalizeCouple(id: string, data: Partial<Couple>): Couple {
     combinedStreak: data.combinedStreak ?? 0,
     weeklyReadingMinutesGoal: data.weeklyReadingMinutesGoal ?? 300,
     weeklyStudyMinutesGoal: data.weeklyStudyMinutesGoal ?? 200,
-    levelXp: data.levelXp ?? 0,
-    levelNumber: data.levelNumber ?? 1,
+    levelXp,
+    // Spending XP never demotes a level, so keep the highest known level.
+    levelNumber: Math.max(data.levelNumber ?? 1, Math.floor(levelXp / XP_PER_LEVEL) + 1),
     jokerCardsUser1: data.jokerCardsUser1 ?? 2,
     jokerCardsUser2: data.jokerCardsUser2 ?? 2,
     allSanctionsPaused: data.allSanctionsPaused ?? false,
@@ -248,10 +264,33 @@ function normalizeCouple(id: string, data: Partial<Couple>): Couple {
   };
 }
 
+// A placeholder room used whenever there is no signed-in cloud account, so no
+// demo or previous-account data can leak into the next session.
+function emptyCouple(): Couple {
+  return normalizeCouple('', {
+    user1Id: '',
+    user2Id: '',
+    user1Profile: undefined,
+    user2Profile: undefined,
+    combinedStreak: 0,
+    levelXp: 0,
+    levelNumber: 1,
+    unlockedDecorations: [],
+    jokerCardsUser1: 2,
+    jokerCardsUser2: 2,
+    selectedTimeOfDay: 'auto',
+    selectedWeather: 'clear',
+  });
+}
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [saved] = useState<Partial<PersistedState>>(loadPersistedState);
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [isProfileLoading, setIsProfileLoading] = useState<boolean>(
+    () => readStorage('gt_demo_mode') !== 'true'
+  );
+  const lastAuthUidRef = useRef<string | null>(null);
   const [isDemoMode, setIsDemoMode] = useState<boolean>(
     () => readStorage('gt_demo_mode') === 'true'
   );
@@ -311,18 +350,58 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const partnerUser: UserProfile | null =
     partnerId && partnerId !== currentUser.id ? usersState[partnerId] ?? null : null;
 
+  const clearLocalCollections = () => {
+    setHabits([]);
+    setLogs([]);
+    setSessions([]);
+    setBooks([]);
+    setJournals([]);
+    setAgreements([]);
+    setCheckins([]);
+    setReactions([]);
+  };
+
+  // Wipe everything that belongs to the previous account/demo session. Without
+  // this, a device shared by two people shows the last account's cached data.
+  const resetCloudSessionState = () => {
+    removeStorage(STATE_KEY);
+    setCouple(emptyCouple());
+    setUsersState({});
+    clearLocalCollections();
+    setActiveNotification(null);
+    setHighFiveCelebrated(false);
+  };
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setAuthUser(user);
       if (user) {
+        const uidChanged = lastAuthUidRef.current !== user.uid;
+        lastAuthUidRef.current = user.uid;
         cloudSyncEnabled = true;
         setIsDemoMode(false);
         writeStorage('gt_demo_mode', 'false');
-        setCurrentUserId(user.uid);
-        await setupUserProfile(user);
+        if (uidChanged) {
+          resetCloudSessionState();
+          setCurrentUserId(user.uid);
+          setIsProfileLoading(true);
+        }
+        // Never block the app forever if the profile read stalls on a bad network.
+        await Promise.race([
+          setupUserProfile(user),
+          new Promise<void>((resolve) => setTimeout(resolve, 8000)),
+        ]);
+        setIsProfileLoading(false);
       } else {
         cloudSyncEnabled = false;
-        setCurrentUserId('user_rama_01');
+        lastAuthUidRef.current = null;
+        setIsProfileLoading(false);
+        // A demo session survives an unanswered auth check, but a real logout
+        // must not leave the previous account's data on screen.
+        if (readStorage('gt_demo_mode') !== 'true') {
+          resetCloudSessionState();
+          setCurrentUserId('user_rama_01');
+        }
       }
       setIsAuthLoading(false);
     });
@@ -338,14 +417,149 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await firebaseLogoutUser();
     } finally {
       cloudSyncEnabled = false;
+      lastAuthUidRef.current = null;
       setIsDemoMode(false);
       writeStorage('gt_demo_mode', 'false');
+      setIsProfileLoading(false);
+      resetCloudSessionState();
+      setCurrentUserId('user_rama_01');
     }
   };
 
+  // Reopen the Google account chooser and replace the current session.
+  const switchAccount = async () => {
+    await loginWithGoogle();
+  };
+
+  // Delete the signed-in account: personal documents first (security rules
+  // require room membership), then leave/hand over the room, then the profile.
+  const deleteAccount = async () => {
+    const user = auth.currentUser;
+    if (!user) throw new Error('Sesi berakhir. Silakan masuk ulang.');
+
+    await reauthenticateWithGoogle(user);
+    cloudSyncEnabled = true;
+
+    const coupleId = currentUser.coupleId;
+    let room = coupleRef.current;
+    if (coupleId && room.id !== coupleId) {
+      const snap = await getDoc(doc(db, 'couples', coupleId)).catch(() => null);
+      if (snap?.exists()) {
+        room = normalizeCouple(snap.id, snap.data() as Partial<Couple>);
+      }
+    }
+    const partnerId = room.user1Id === user.uid ? room.user2Id : room.user1Id;
+
+    const deleteWhereCouple = async (
+      name: string,
+      filter: (data: Record<string, unknown>) => boolean
+    ) => {
+      if (!coupleId) return;
+      try {
+        const snap = await getDocs(
+          query(collection(db, name), where('coupleId', '==', coupleId))
+        );
+        const targets = snap.docs.filter((d) => filter(d.data()));
+        await Promise.all(
+          targets.map((d) => firestoreDeleteDoc(d.ref).catch(() => undefined))
+        );
+      } catch (e) {
+        console.warn(`deleteAccount ${name}:`, e);
+      }
+    };
+    const deleteWhereUser = async (name: string, field: string) => {
+      try {
+        const snap = await getDocs(query(collection(db, name), where(field, '==', user.uid)));
+        await Promise.all(
+          snap.docs.map((d) => firestoreDeleteDoc(d.ref).catch(() => undefined))
+        );
+      } catch (e) {
+        console.warn(`deleteAccount ${name}:`, e);
+      }
+    };
+    // Shared habits belong to the couple, so the partner keeps their routine.
+    // Private and personal habits leave with their owner (and everything goes
+    // when there is no partner left to inherit the room).
+    const deleteOwnHabits = async (keepShared: boolean) => {
+      try {
+        const snap = await getDocs(query(collection(db, 'habits'), where('ownerId', '==', user.uid)));
+        const targets = snap.docs.filter((d) => {
+          const data = d.data() as Partial<Habit>;
+          return !(keepShared && data.isShared === true && data.isPrivate !== true);
+        });
+        await Promise.all(
+          targets.map((d) => firestoreDeleteDoc(d.ref).catch(() => undefined))
+        );
+      } catch (e) {
+        console.warn('deleteAccount habits:', e);
+      }
+    };
+
+    // 1. Personal data (still a member so security rules allow the deletes).
+    await deleteOwnHabits(!!partnerId);
+    await deleteWhereUser('logs', 'userId');
+    await deleteWhereUser('sessions', 'userId');
+    await deleteWhereUser('journals', 'authorId');
+    await deleteWhereUser('checkins', 'userId');
+    await deleteWhereCouple('reactions', (d) => d.senderId === user.uid);
+    await deleteWhereCouple('books', (d) => d.addedById === user.uid);
+    await deleteWhereCouple('agreements', (d) => d.creatorId === user.uid);
+
+    // 2. Leave the room: inherit it to the partner, or dissolve it when alone.
+    if (coupleId && room.id === coupleId) {
+      try {
+        if (room.user1Id === user.uid && partnerId) {
+          const inheritedProfile = usersState[partnerId] ?? room.user2Profile ?? null;
+          await firestoreSetDoc(
+            doc(db, 'couples', coupleId),
+            {
+              user1Id: partnerId,
+              user1Profile: inheritedProfile ?? deleteField(),
+              user2Id: '',
+              user2Profile: deleteField(),
+              updatedAt: new Date().toISOString(),
+            },
+            { merge: true }
+          );
+        } else if (room.user2Id === user.uid) {
+          await firestoreSetDoc(
+            doc(db, 'couples', coupleId),
+            { user2Id: '', user2Profile: deleteField(), updatedAt: new Date().toISOString() },
+            { merge: true }
+          );
+        } else if (!room.user2Id) {
+          await firestoreDeleteDoc(doc(db, 'couples', coupleId));
+        }
+      } catch (e) {
+        console.warn('deleteAccount leave couple:', e);
+      }
+    }
+
+    // 3. Remove the invite code and the profile document.
+    if (currentUser.inviteCode) {
+      await firestoreDeleteDoc(doc(db, 'inviteCodes', currentUser.inviteCode)).catch(
+        () => undefined
+      );
+    }
+    await firestoreDeleteDoc(doc(db, 'users', user.uid)).catch((e) =>
+      console.warn('deleteAccount profile:', e)
+    );
+
+    // 4. Finally remove the Firebase Auth account itself.
+    await deleteUser(user);
+
+    removeStorage(STATE_KEY);
+    writeStorage('gt_demo_mode', 'false');
+    lastAuthUidRef.current = null;
+    setIsDemoMode(false);
+    setIsProfileLoading(false);
+    resetCloudSessionState();
+    setCurrentUserId('user_rama_01');
+  };
+
   const setupUserProfile = async (user: User) => {
+    const userRef = doc(db, 'users', user.uid);
     try {
-      const userRef = doc(db, 'users', user.uid);
       const userSnap = await getDoc(userRef);
       if (!userSnap.exists()) {
         const newUser: UserProfile = {
@@ -359,20 +573,62 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         };
         await cloudSetDoc(userRef, newUser);
         setUsersState(prev => ({ ...prev, [user.uid]: newUser }));
-      } else {
-        const userData = userSnap.data() as UserProfile;
-        const repaired = {
-          ...userData,
-          id: user.uid,
-          inviteCode: userData.inviteCode || generateInviteCode(),
-        };
-        if (!userData.inviteCode) {
-          await cloudSetDoc(userRef, { inviteCode: repaired.inviteCode }, { merge: true });
-        }
-        setUsersState(prev => ({ ...prev, [user.uid]: repaired }));
+        return;
       }
+
+      const userData = userSnap.data() as UserProfile;
+      const repaired: UserProfile = {
+        ...userData,
+        id: user.uid,
+        displayName: userData.displayName || user.displayName || 'Pengguna',
+        email: userData.email || user.email || '',
+        inviteCode: userData.inviteCode || generateInviteCode(),
+      };
+
+      // A coupleId pointing at a room where this user is no longer a member
+      // leaves the app stuck on a loading screen. Verify once and repair it.
+      let staleCouple = false;
+      if (repaired.coupleId) {
+        try {
+          const coupleSnap = await getDoc(doc(db, 'couples', repaired.coupleId));
+          if (coupleSnap.exists()) {
+            const room = coupleSnap.data() as Partial<Couple>;
+            if (room.user1Id !== user.uid && room.user2Id !== user.uid) {
+              staleCouple = true;
+            }
+          }
+        } catch (e) {
+          // Offline: keep the stored room, the snapshot listener reconciles later.
+          console.warn('setupUserProfile verify couple:', e);
+        }
+      }
+      if (staleCouple) delete repaired.coupleId;
+
+      const patch: Record<string, unknown> = {};
+      if (!userData.inviteCode) patch.inviteCode = repaired.inviteCode;
+      if (staleCouple) patch.coupleId = deleteField();
+      if (Object.keys(patch).length > 0) {
+        await cloudSetDoc(userRef, patch, { merge: true });
+      }
+      setUsersState(prev => ({ ...prev, [user.uid]: repaired }));
     } catch (error) {
       console.warn('Error setting up user profile:', error);
+      setUsersState(prev =>
+        prev[user.uid]
+          ? prev
+          : {
+              ...prev,
+              [user.uid]: {
+                id: user.uid,
+                displayName: user.displayName || user.email?.split('@')[0] || 'Pengguna',
+                email: user.email || '',
+                photoURL: user.photoURL || undefined,
+                colorTheme: 'coral',
+                inviteCode: '',
+                createdAt: new Date().toISOString(),
+              },
+            }
+      );
     }
   };
 
@@ -471,7 +727,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       (docSnap) => {
         if (docSnap.exists()) {
           setCouple(normalizeCouple(docSnap.id, docSnap.data() as Partial<Couple>));
+          return;
         }
+        // The room was dissolved (for example the partner deleted their account).
+        // Only trust a server-confirmed miss, never an empty offline cache.
+        if (docSnap.metadata.fromCache) return;
+        setCouple(emptyCouple());
+        const uid = authUser.uid;
+        void cloudSetDoc(doc(db, 'users', uid), { coupleId: deleteField() }, { merge: true })
+          .then(() =>
+            setUsersState((prev) => ({
+              ...prev,
+              [uid]: { ...prev[uid], coupleId: undefined },
+            }))
+          )
+          .catch((e) => console.warn('Firestore clear stale coupleId:', e));
       },
       (err) => {
         console.warn('Firestore couple snapshot:', err.message);
@@ -480,32 +750,81 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => unsubscribe();
   }, [authUser, currentUser.coupleId]);
 
-  // Refresh both partner profiles whenever the couple members change
+  // A room's invite pointer can go missing (owner deletion or ownership hand-over).
+  // Recreate it from the signed-in profile so pairing keeps working.
   useEffect(() => {
-    if (!authUser || !currentUser.coupleId) return;
-    const ids = [couple.user1Id, couple.user2Id].filter(
-      (id): id is string => typeof id === 'string' && id.length > 0
-    );
-    if (ids.length === 0) return;
+    if (!authUser || isDemoMode) return;
+    const { coupleId, inviteCode } = currentUser;
+    if (!coupleId || !inviteCode) return;
+    if (couple.id !== coupleId) return;
+    if (couple.user1Id !== currentUser.id && couple.user2Id !== currentUser.id) return;
 
     let cancelled = false;
-    Promise.all(
-      ids.map((id) => getDoc(doc(db, 'users', id)).catch(() => null))
-    ).then((snapshots) => {
-      if (cancelled) return;
-      const profiles: { [id: string]: UserProfile } = {};
-      snapshots.forEach((snap) => {
-        if (snap?.exists()) profiles[snap.id] = snap.data() as UserProfile;
-      });
-      if (Object.keys(profiles).length > 0) {
-        setUsersState((prev) => ({ ...prev, ...profiles }));
+    void (async () => {
+      try {
+        const snap = await getDoc(doc(db, 'inviteCodes', inviteCode));
+        const data = snap.data() as { userId?: string; coupleId?: string } | undefined;
+        if (cancelled) return;
+        if (snap.exists() && data?.userId === currentUser.id && data?.coupleId === couple.id) {
+          return;
+        }
+        await cloudSetDoc(
+          doc(db, 'inviteCodes', inviteCode),
+          {
+            userId: currentUser.id,
+            coupleId: couple.id,
+            ownerName: currentUser.displayName,
+            photoURL: currentUser.photoURL ?? null,
+            colorTheme: currentUser.colorTheme,
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+      } catch (e) {
+        console.warn('Firestore invite code self-heal:', e);
       }
-    });
+    })();
 
     return () => {
       cancelled = true;
     };
-  }, [authUser, currentUser.coupleId, couple.user1Id, couple.user2Id]);
+  }, [
+    authUser,
+    isDemoMode,
+    currentUser.id,
+    currentUser.coupleId,
+    currentUser.inviteCode,
+    currentUser.displayName,
+    currentUser.photoURL,
+    currentUser.colorTheme,
+    couple.id,
+    couple.user1Id,
+    couple.user2Id,
+  ]);
+
+  // Keep every room member's profile live, so name/photo changes on one device
+  // appear on the partner's screen without a reload.
+  useEffect(() => {
+    if (!authUser || !currentUser.coupleId) return;
+    const ids = Array.from(
+      new Set([currentUser.id, couple.user1Id, couple.user2Id])
+    ).filter((id): id is string => typeof id === 'string' && id.length > 0);
+    if (ids.length === 0) return;
+
+    const unsubs = ids.map((id) =>
+      onSnapshot(
+        doc(db, 'users', id),
+        (snap) => {
+          if (!snap.exists()) return;
+          const profile = snap.data() as UserProfile;
+          setUsersState((prev) => ({ ...prev, [snap.id]: { ...profile, id: snap.id } }));
+        },
+        (err) => console.warn('Firestore user snapshot:', err.message)
+      )
+    );
+
+    return () => unsubs.forEach((unsub) => unsub());
+  }, [authUser, currentUser.coupleId, currentUser.id, couple.user1Id, couple.user2Id]);
 
   // Live couple data: every screen reads from the same real-time collections.
   useEffect(() => {
@@ -1139,21 +1458,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     sound.playHighFive();
   };
 
-  const clearLocalCollections = () => {
-    setHabits([]);
-    setLogs([]);
-    setSessions([]);
-    setBooks([]);
-    setJournals([]);
-    setAgreements([]);
-    setCheckins([]);
-    setReactions([]);
-  };
-
   // Create a private room owned by the signed-in user
   const createCouple = async (): Promise<void> => {
     if (!authUser) throw new Error('Silakan masuk terlebih dahulu.');
     if (currentUser.coupleId) return;
+
+    // Another device may have paired this account after the profile was cached.
+    const freshSnap = await getDoc(doc(db, 'users', currentUser.id)).catch(() => null);
+    const freshCoupleId = (freshSnap?.data() as Partial<UserProfile> | undefined)?.coupleId;
+    if (freshCoupleId) {
+      setUsersState((prev) => ({
+        ...prev,
+        [currentUser.id]: { ...currentUser, coupleId: freshCoupleId },
+      }));
+      return;
+    }
 
     const now = new Date().toISOString();
     const inviteCode = currentUser.inviteCode || generateInviteCode();
@@ -1213,13 +1532,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const code = rawCode.trim().toUpperCase();
     if (!code || code === currentUser.inviteCode.toUpperCase()) return false;
 
-    if (currentUser.coupleId) {
-      const currentRoom = couple.id === currentUser.coupleId ? couple : null;
-      if (currentRoom && currentRoom.user2Id && currentRoom.user2Id !== currentUser.id) {
-        return false;
-      }
-    }
-
     const inviteSnap = await getDoc(doc(db, 'inviteCodes', code));
     if (!inviteSnap.exists()) return false;
 
@@ -1233,6 +1545,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const partnerId = invite.userId;
     const targetCoupleId = invite.coupleId;
     if (!partnerId || !targetCoupleId || partnerId === currentUser.id) return false;
+
+    // Trust the stored profile over local state: it may be stale on a new device.
+    const mySnap = await getDoc(doc(db, 'users', currentUser.id)).catch(() => null);
+    const myFresh = (mySnap?.data() as Partial<UserProfile> | undefined) ?? {};
+    const previousCoupleId =
+      myFresh.coupleId && myFresh.coupleId !== targetCoupleId ? myFresh.coupleId : null;
+    if (previousCoupleId) {
+      const prevSnap = await getDoc(doc(db, 'couples', previousCoupleId)).catch(() => null);
+      const prev = prevSnap?.data() as Partial<Couple> | undefined;
+      // Already in a room with someone else: refuse to silently abandon it.
+      if (prev?.user2Id && prev.user2Id !== currentUser.id) return false;
+    }
 
     const partner: UserProfile = usersState[partnerId] ?? {
       id: partnerId,
@@ -1269,6 +1593,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       { coupleId: targetCoupleId },
       { merge: true }
     );
+
+    if (previousCoupleId) {
+      // The old room had no partner, so it would otherwise stay orphaned forever.
+      const prevRef = doc(db, 'couples', previousCoupleId);
+      const prevSnap = await getDoc(prevRef).catch(() => null);
+      if (prevSnap?.exists() && !(prevSnap.data() as Partial<Couple>).user2Id) {
+        await firestoreDeleteDoc(prevRef).catch((e) =>
+          console.warn('Firestore cleanup old solo couple:', e)
+        );
+      }
+    }
 
     setCouple(joinedCouple);
     setUsersState((prev) => ({
@@ -1520,31 +1855,63 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  // Unlock Island Decoration with XP
+  // Unlock Island Decoration with XP. The read-check-write runs in a transaction
+  // so two devices cannot spend the same XP twice.
   const unlockDecoration = async (decorationId: IslandDecorationId): Promise<boolean> => {
     const targetDec = ISLAND_DECORATIONS.find((d) => d.id === decorationId);
     if (!targetDec) return false;
     const current = coupleRef.current;
-    if (current.levelXp < targetDec.xpCost) return false;
+    if (!current.id) return false;
     if (current.unlockedDecorations.includes(decorationId)) return true;
 
-    const nextDecorations = [...current.unlockedDecorations, decorationId];
-    const nextXp = current.levelXp - targetDec.xpCost;
-    const nextCouple = { ...current, levelXp: nextXp, unlockedDecorations: nextDecorations };
-    coupleRef.current = nextCouple;
-    setCouple(nextCouple);
-    sound.playHabitComplete();
-    fireConfetti({ particleCount: 60, spread: 80, origin: { y: 0.6 } });
+    const applyLocal = (xp: number, decorations: IslandDecorationId[]) => {
+      const nextCouple = { ...coupleRef.current, levelXp: xp, unlockedDecorations: decorations };
+      coupleRef.current = nextCouple;
+      setCouple(nextCouple);
+      sound.playHabitComplete();
+      fireConfetti({ particleCount: 60, spread: 80, origin: { y: 0.6 } });
+    };
+
+    if (!cloudSyncEnabled) {
+      if (current.levelXp < targetDec.xpCost) return false;
+      applyLocal(current.levelXp - targetDec.xpCost, [...current.unlockedDecorations, decorationId]);
+      return true;
+    }
+
     try {
-      await cloudSetDoc(
-        doc(db, 'couples', couple.id),
-        { levelXp: nextXp, unlockedDecorations: nextDecorations },
-        { merge: true }
-      );
+      const result = await runTransaction(db, async (tx) => {
+        const ref = doc(db, 'couples', current.id);
+        const snap = await tx.get(ref);
+        if (!snap.exists()) return { ok: false as const };
+        const data = snap.data() as Partial<Couple>;
+        const xp = data.levelXp ?? 0;
+        const unlocked = data.unlockedDecorations ?? [];
+        if (unlocked.includes(decorationId)) {
+          return { ok: true as const, xp, unlocked, already: true };
+        }
+        if (xp < targetDec.xpCost) return { ok: false as const };
+        const nextXp = xp - targetDec.xpCost;
+        const nextUnlocked = [...unlocked, decorationId];
+        tx.update(ref, { levelXp: nextXp, unlockedDecorations: nextUnlocked });
+        return { ok: true as const, xp: nextXp, unlocked: nextUnlocked, already: false };
+      });
+      if (!result.ok) return false;
+      if (!result.already) applyLocal(result.xp, result.unlocked);
+      return true;
     } catch (e) {
       console.warn('Firestore unlockDecoration:', e);
+      // Transactions need a connection; queue a normal write when offline.
+      if (isOnline || current.levelXp < targetDec.xpCost) return false;
+      const nextDecorations = [...current.unlockedDecorations, decorationId];
+      const nextXp = current.levelXp - targetDec.xpCost;
+      applyLocal(nextXp, nextDecorations);
+      await cloudSetDoc(
+        doc(db, 'couples', current.id),
+        { levelXp: nextXp, unlockedDecorations: nextDecorations },
+        { merge: true }
+      ).catch(() => undefined);
+      return true;
     }
-    return true;
   };
 
   // Time of day and weather overrides
@@ -1567,18 +1934,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Add couple XP. Levels only move forward; spending XP never demotes.
-  // coupleRef keeps back-to-back awards (habit + check-in) from overwriting each other.
+  // increment() is atomic, so both partners' awards accumulate instead of
+  // overwriting each other's last known balance.
   const addCoupleXP = async (amount: number) => {
     const base = coupleRef.current;
-    const nextXp = Math.max(0, (base.levelXp || 0) + amount);
-    const nextLevel = Math.max(base.levelNumber || 1, Math.floor(nextXp / XP_PER_LEVEL) + 1);
-    const nextCouple = { ...base, levelXp: nextXp, levelNumber: nextLevel };
+    if (!base.id) return;
+    const optimisticXp = Math.max(0, (base.levelXp || 0) + amount);
+    const nextCouple = {
+      ...base,
+      levelXp: optimisticXp,
+      levelNumber: Math.max(
+        base.levelNumber || 1,
+        Math.floor(optimisticXp / XP_PER_LEVEL) + 1
+      ),
+    };
     coupleRef.current = nextCouple;
     setCouple(nextCouple);
+    if (!cloudSyncEnabled) return;
     try {
       await cloudSetDoc(
         doc(db, 'couples', base.id),
-        { levelXp: nextXp, levelNumber: nextLevel },
+        { levelXp: increment(amount) },
         { merge: true }
       );
     } catch (e) {
@@ -1619,10 +1995,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const value: AppContextType = {
     authUser,
     isAuthLoading,
+    isProfileLoading,
     isDemoMode,
     loginWithGoogle,
     enterDemoMode,
     logoutUser,
+    switchAccount,
+    deleteAccount,
     setupUserProfile,
     currentUser,
     partnerUser,
