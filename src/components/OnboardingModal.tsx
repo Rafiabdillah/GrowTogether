@@ -33,6 +33,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClos
     isDemoMode,
     updateUserProfile,
     pairWithCode,
+    roomCode,
     resetToEmptyState,
     loadDemoData,
   } = useApp();
@@ -63,7 +64,11 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClos
   if (!isOpen) return null;
 
   const handleCopyCode = () => {
-    const code = currentUser.inviteCode || 'GROW-2026';
+    const code = roomCode;
+    if (!code) {
+      setPairError('Kode ruang belum siap. Coba buka aplikasi lagi sebentar.');
+      return;
+    }
     const fallbackCopy = () => {
       try {
         const area = document.createElement('textarea');
@@ -273,7 +278,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClos
                 </span>
                 <div className="flex items-center gap-2">
                   <div className="flex-1 py-2 px-3 rounded-xl bg-white dark:bg-stone-900 border border-amber-300 dark:border-amber-700 text-center font-mono font-bold text-base text-amber-700 dark:text-amber-300">
-                    {currentUser.inviteCode || 'GROW-2026'}
+                    {roomCode || 'MENUNGGU...'}
                   </div>
                   <button type="button"
                     onClick={handleCopyCode}

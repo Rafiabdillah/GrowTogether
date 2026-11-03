@@ -4,6 +4,7 @@ import {
   signInAnonymously,
   signOut,
   deleteUser,
+  connectAuthEmulator,
   User,
 } from 'firebase/auth';
 import {
@@ -11,6 +12,7 @@ import {
   initializeFirestore,
   persistentLocalCache,
   persistentMultipleTabManager,
+  connectFirestoreEmulator,
   doc,
   getDocFromServer,
   Firestore,
@@ -34,6 +36,15 @@ try {
 
 export const db = firestoreInstance;
 export const auth = getAuth(app);
+
+// Local verification mode: point Auth and Firestore at the emulator so two
+// browser sessions can be paired for real without touching the live project.
+// VITE_FIREBASE_EMULATOR is never set in a production build.
+if (import.meta.env.VITE_FIREBASE_EMULATOR === '1') {
+  const host = import.meta.env.VITE_FIREBASE_EMULATOR_HOST || '127.0.0.1';
+  connectAuthEmulator(auth, `http://${host}:9199`, { disableWarnings: true });
+  connectFirestoreEmulator(db, host, 8899);
+}
 
 // A device no longer needs an account to participate: Firebase gives every
 // install its own uid, and the room code is what binds that uid to a shared room.

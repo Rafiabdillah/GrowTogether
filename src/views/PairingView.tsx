@@ -6,6 +6,7 @@ import { Users, Copy, Check, UserPlus, KeyRound, AlertTriangle, Trash2 } from 'l
 export const PairingView: React.FC = () => {
   const {
     currentUser,
+    roomCode,
     createCouple,
     joinCouple,
     authUser,
@@ -87,19 +88,19 @@ export const PairingView: React.FC = () => {
   };
 
   const copyInviteCode = () => {
-    if (!currentUser.inviteCode) return;
+    if (!roomCode) return;
     const markCopied = () => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     };
     if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(currentUser.inviteCode).then(markCopied).catch(() => {
+      navigator.clipboard.writeText(roomCode).then(markCopied).catch(() => {
         setError('Gagal menyalin. Catat kodenya secara manual.');
       });
     } else {
       try {
         const area = document.createElement('textarea');
-        area.value = currentUser.inviteCode;
+        area.value = roomCode;
         area.style.position = 'fixed';
         area.style.opacity = '0';
         document.body.appendChild(area);
@@ -155,7 +156,7 @@ export const PairingView: React.FC = () => {
 
             <div className="flex items-center gap-2 p-4 bg-stone-50 dark:bg-stone-800 rounded-xl border border-stone-200 dark:border-stone-700">
               <code className="flex-1 text-center text-lg font-mono font-bold text-stone-900 dark:text-stone-100 tracking-wider">
-                {currentUser.inviteCode || 'LOADING'}
+                {roomCode || 'MEMBUAT...'}
               </code>
               <button
                 onClick={copyInviteCode}

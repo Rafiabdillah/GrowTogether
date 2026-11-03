@@ -42,6 +42,7 @@ import {
 import {
   collection,
   doc,
+  type QueryConstraint,
   setDoc as firestoreSetDoc,
   deleteDoc as firestoreDeleteDoc,
   onSnapshot,
@@ -98,6 +99,7 @@ interface AppContextType {
   dismissSyncAlert: () => void;
   lastSentReaction: { emoji: string; at: number; ok: boolean } | null;
   partnerUid: string;
+  roomCode: string;
   cloudIdentity: { userId: string; coupleId: string };
   runSyncTest: () => Promise<{ ok: boolean; detail: string }>;
   rebuildLocalCache: () => Promise<void>;
@@ -459,6 +461,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     userId: myUid,
     coupleId: isDemoMode ? couple.id || profileCoupleId : profileCoupleId,
   };
+  // The room's own code is the one both partners can use to return; a member who
+  // joined with the code has no invite code of their own pointing at the room.
+  const roomCode = couple.roomCode || currentUser.inviteCode || '';
   // The room document is the authority on who the partner is; their profile may
   // not have arrived from Firestore yet, and reactions must not depend on it.
   const roomIsMine = !cloudIdentity.coupleId || couple.id === cloudIdentity.coupleId;
@@ -625,9 +630,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         console.warn(`deleteAccount ${name}:`, e);
       }
     };
+    // Rules only accept a query whose constraints prove every returned row is
+    // readable by this device, so an in-room wipe is always coupleId-scoped.
+    const ownRows = (name: string, field: string) => {
+      const constraints: QueryConstraint[] = [where(field, '==', user.uid)];
+      if (coupleId) constraints.unshift(where('coupleId', '==', coupleId));
+      return query(collection(db, name), ...constraints);
+    };
     const deleteWhereUser = async (name: string, field: string) => {
       try {
-        const snap = await getDocs(query(collection(db, name), where(field, '==', user.uid)));
+        const snap = await getDocs(ownRows(name, field));
         await Promise.all(
           snap.docs.map((d) => firestoreDeleteDoc(d.ref).catch(() => undefined))
         );
@@ -640,7 +652,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // when there is no partner left to inherit the room).
     const deleteOwnHabits = async (keepShared: boolean) => {
       try {
-        const snap = await getDocs(query(collection(db, 'habits'), where('ownerId', '==', user.uid)));
+        const snap = await getDocs(ownRows('habits', 'ownerId'));
         const targets = snap.docs.filter((d) => {
           const data = d.data() as Partial<Habit>;
           return !(keepShared && data.isShared === true && data.isPrivate !== true);
@@ -1007,6 +1019,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (couple.id !== coupleId) return;
     if (couple.user1Id !== currentUser.id && couple.user2Id !== currentUser.id) return;
 
+    // Rooms created before the code lived on the room document get it here, so
+    // the second member can read and share it too.
+    if (!couple.roomCode && couple.user1Id === currentUser.id) {
+      void cloudSetDoc(doc(db, 'couples', coupleId), { roomCode: inviteCode }, { merge: true }).catch(
+        () => undefined
+      );
+    }
+
     let cancelled = false;
     void (async () => {
       try {
@@ -1124,8 +1144,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       report('habits')
     );
 
+    // Own-document queries also filter on coupleId on purpose: the security
+    // rules require 'coupleId' to exist on a habit before it can be read, and a
+    // single legacy row without it would otherwise reject the whole listener and
+    // blank out every habit on both phones.
     const habitsOwnUnsub = onSnapshot(
-      query(collection(db, 'habits'), where('ownerId', '==', currentUserId)),
+      query(
+        collection(db, 'habits'),
+        where('ownerId', '==', myUid),
+        where('coupleId', '==', coupleId)
+      ),
       (snapshot) => {
         ownHabits = snapshot.docs.map((d) => ({ ...(d.data() as Habit), id: d.id }));
         publishHabits();
@@ -1152,7 +1180,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
 
     const logsOwnUnsub = onSnapshot(
-      query(collection(db, 'logs'), where('userId', '==', currentUserId)),
+      query(
+        collection(db, 'logs'),
+        where('userId', '==', myUid),
+        where('coupleId', '==', coupleId)
+      ),
       (snapshot) => {
         ownLogs = snapshot.docs.map((d) => ({ ...(d.data() as HabitLog), id: d.id }));
         publishLogs();
@@ -1187,7 +1219,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
 
     const sessionsOwnUnsub = onSnapshot(
-      query(collection(db, 'sessions'), where('userId', '==', currentUserId)),
+      query(
+        collection(db, 'sessions'),
+        where('userId', '==', myUid),
+        where('coupleId', '==', coupleId)
+      ),
       (snapshot) => {
         ownSessions = snapshot.docs.map((d) => ({
           ...(d.data() as FocusSession),
@@ -1235,7 +1271,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
 
     const journalsOwnUnsub = onSnapshot(
-      query(collection(db, 'journals'), where('authorId', '==', currentUserId)),
+      query(
+        collection(db, 'journals'),
+        where('authorId', '==', myUid),
+        where('coupleId', '==', coupleId)
+      ),
       (snapshot) => {
         ownJournals = snapshot.docs.map((d) => ({
           ...(d.data() as JournalEntry),
@@ -1319,7 +1359,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
 
     const checkinsOwnUnsub = onSnapshot(
-      query(collection(db, 'checkins'), where('userId', '==', currentUserId)),
+      query(
+        collection(db, 'checkins'),
+        where('userId', '==', myUid),
+        where('coupleId', '==', coupleId)
+      ),
       (snapshot) => {
         ownCheckins = snapshot.docs.map((d) => ({
           ...(d.data() as CheckIn),
@@ -1345,7 +1389,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       checkinsPublicUnsub();
       checkinsOwnUnsub();
     };
-  }, [authUser, currentUser.coupleId, currentUserId]);
+  }, [authUser, currentUser.coupleId, myUid]);
 
   // Every Firestore failure reaches the UI: the newest one as a banner, the
   // recent history in the sync panel.
@@ -1930,6 +1974,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: coupleId,
       user1Id: me.id,
       user2Id: '',
+      // Stored on the room itself so either member can re-enter from a new device
+      // even after their own profile document is gone.
+      roomCode: inviteCode,
       user1Profile: { ...me, inviteCode },
       combinedStreak: 0,
       graceDayUsedThisWeek: false,
@@ -2046,8 +2093,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     const now = new Date().toISOString();
+    const roomCode = existing.roomCode || code;
     const joinedCouple: Couple = {
       ...existing,
+      roomCode,
       user2Id: me.id,
       user2Profile: me,
       updatedAt: now,
@@ -2055,7 +2104,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     await cloudSetDoc(
       coupleRef,
-      { user2Id: me.id, user2Profile: me, updatedAt: now },
+      { user2Id: me.id, user2Profile: me, roomCode, updatedAt: now },
       { merge: true }
     );
     await cloudSetDoc(
@@ -2307,7 +2356,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const recordCheckIn = async (checkInData: Omit<CheckIn, 'id' | 'createdAt'>) => {
     const coupleId = requireRoom('check-in malam');
     if (!coupleId) return;
-    const userId = checkInData.userId === currentUser.id ? myUid : checkInData.userId;
+    const userId = checkInData.userId === currentUser.id ? myUid : '';
+    if (!userId) {
+      // The rules only accept a check-in owned by the signed-in uid, so writing
+      // one for the partner would fail silently instead of recording it.
+      emitSyncEvent({
+        at: Date.now(),
+        kind: 'write',
+        target: 'check-in malam',
+        ok: false,
+        message: 'check-in hanya bisa dicatat untuk akun di perangkat ini',
+      });
+      return;
+    }
     const existing = checkins.find((c) => c.userId === userId && c.date === checkInData.date);
     const id = existing?.id ?? `chk_${userId}_${checkInData.date}`;
     const newCheckIn: CheckIn = {
@@ -2495,6 +2556,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     dismissSyncAlert,
     lastSentReaction,
     partnerUid,
+    roomCode,
     cloudIdentity,
     runSyncTest,
     rebuildLocalCache,

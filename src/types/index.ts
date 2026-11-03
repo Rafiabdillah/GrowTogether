@@ -19,6 +19,8 @@ export interface Couple {
   id: string;
   user1Id: string;
   user2Id?: string;
+  /** The room's own code: with no accounts, it is how either partner returns. */
+  roomCode?: string;
   user1Profile?: UserProfile;
   user2Profile?: UserProfile;
   combinedStreak: number;

@@ -83,6 +83,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     leaveCouple,
     updateUserProfile,
     pairWithCode,
+    roomCode,
     showSimulatorToolbar,
     toggleSimulatorToolbar,
     resetToEmptyState,
@@ -210,7 +211,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleCopyCode = () => {
-    const code = currentUser.inviteCode;
+    const code = roomCode;
     if (!code) return;
     void copyText(code).then((ok) => {
       if (ok) {
@@ -545,7 +546,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                 <div className="flex items-center gap-2">
                   <div className="flex-1 py-2.5 px-3.5 rounded-xl bg-white dark:bg-stone-900 border border-amber-300 dark:border-amber-700 text-center font-mono text-lg font-extrabold tracking-widest text-amber-700 dark:text-amber-300">
-                    {currentUser.inviteCode || '-'}
+                    {roomCode || 'MENGGUNGGU...'}
                   </div>
 
                   <button

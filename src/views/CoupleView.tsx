@@ -55,6 +55,7 @@ export const CoupleView: React.FC = () => {
     sendReaction,
     pairWithCode,
     partnerUid,
+    roomCode,
   } = useApp();
 
   const [activeSubTab, setActiveSubTab] = useState<'rituals' | 'books' | 'journal' | 'challenge' | 'pairing'>('rituals');
@@ -98,7 +99,8 @@ export const CoupleView: React.FC = () => {
   };
 
   const handleCopyCode = async () => {
-    const ok = await copyText(currentUser.inviteCode || 'GROW88');
+    if (!roomCode) return;
+    const ok = await copyText(roomCode);
     if (!ok) return;
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 2000);
@@ -242,8 +244,8 @@ export const CoupleView: React.FC = () => {
               <Heart className="w-4 h-4 text-rose-500 fill-rose-500" />
             </div>
             <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
-              {partnerUid ? 'Terhubung aktif' : 'Menunggu pasangan bergabung'} · Kode Undangan:{' '}
-              <span className="font-mono font-bold text-amber-600 dark:text-amber-400">{currentUser.inviteCode}</span>
+              {partnerUid ? 'Terhubung aktif' : 'Menunggu pasangan bergabung'} · Kode Ruang:{' '}
+              <span className="font-mono font-bold text-amber-600 dark:text-amber-400">{roomCode || 'MEMBUAT...'}</span>
             </p>
           </div>
         </div>
@@ -764,10 +766,10 @@ export const CoupleView: React.FC = () => {
           <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700/80 flex items-center justify-between gap-3">
             <div>
               <span className="text-[11px] font-semibold text-stone-500 uppercase">
-                Kode Undangan Milikmu
+                Kode Ruang Ini
               </span>
               <p className="text-2xl font-extrabold tracking-widest text-amber-600 dark:text-amber-400 font-mono mt-0.5">
-                {currentUser.inviteCode || 'GROW88'}
+                {roomCode || 'MEMBUAT...'}
               </p>
             </div>
             <button type="button"
