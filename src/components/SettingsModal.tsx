@@ -77,7 +77,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     couple,
     authUser,
     isDemoMode,
-    logoutUser,
+    exitDemoMode,
     switchAccount,
     deleteAccount,
     leaveCouple,
@@ -150,7 +150,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     !!cloudIdentity.coupleId &&
     (couple.user1Id === cloudIdentity.userId || couple.user2Id === cloudIdentity.userId);
   const syncRows: { label: string; value: string; bad?: boolean }[] = [
-    { label: 'Akun', value: authUser?.email || 'belum masuk Google' },
+    { label: 'Sesi perangkat', value: authUser?.uid.slice(0, 8) || 'belum ada sesi' },
     {
       label: 'Ruang bersama',
       value: cloudIdentity.coupleId || '(kosong)',
@@ -248,7 +248,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         }, 1500);
       } else {
         setPairError(
-          'Kode tidak ditemukan. Pastikan pasangan sudah menekan "Buat Ruang Bersama" dan bagikan kode terbaru.'
+          'Kode tidak ditemukan. Pastikan pasangan sudah menekan "Buat Ruang Baru" dan bagikan kode terbaru.'
         );
       }
     } catch {
@@ -256,9 +256,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  const handleLogout = async () => {
-    await logoutUser();
+  const handleExitDemo = () => {
     onClose();
+    exitDemoMode();
   };
 
   const handleSwitchAccount = async () => {
@@ -535,7 +535,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {/* Box Kode Sendiri */}
               <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40">
                 <span className="text-xs font-bold text-stone-700 dark:text-stone-300 block mb-1">
-                  Kode undanganmu
+                  Kode ruangmu
                 </span>
                 <p className="text-xs text-stone-700 dark:text-stone-300 mb-3">
                   {isConnected
@@ -689,8 +689,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 {isDemoMode ? (
                   <p className="text-xs text-stone-600 dark:text-stone-300 mt-2 leading-relaxed">
                     Kalian berada di mode demo. Semua perubahan hanya tersimpan di perangkat ini dan
-                    tidak akan pernah terlihat oleh pasangan. Masuk dengan Google untuk sinkronisasi
-                    sungguhan.
+                    tidak akan pernah terlihat oleh pasangan. Keluar dari mode demo lalu gunakan
+                    kode ruang untuk sinkronisasi sungguhan.
                   </p>
                 ) : (
                   <dl className="mt-2 space-y-1.5">
@@ -1094,39 +1094,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <p className="text-xs text-stone-500 mt-1.5 leading-relaxed">
                   {isDemoMode
                     ? 'Kamu sedang memakai mode demo lokal. Data tidak tersinkron ke perangkat lain.'
-                    : authUser?.email || 'Masuk dengan Google untuk sinkronisasi.'}
+                    : `Masuk tanpa akun. Sesi perangkat: ${authUser?.uid.slice(0, 8) || '—'}`}
                 </p>
 
                 {isDemoMode ? (
                   <button
                     type="button"
-                    onClick={handleLogout}
+                    onClick={handleExitDemo}
                     className="mt-3 min-h-[44px] py-2 px-3 rounded-xl bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300 font-semibold text-xs hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
                   >
                     Keluar dari Mode Demo
                   </button>
                 ) : (
                   <div className="mt-3 space-y-2">
-                    <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={handleSwitchAccount}
-                        disabled={accountBusy}
-                        className="min-h-[44px] py-2 px-3 rounded-xl bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300 font-semibold text-xs hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
-                      >
-                        <ArrowRightLeft className="w-4 h-4" aria-hidden="true" />
-                        Ganti Akun
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleLogout}
-                        disabled={accountBusy}
-                        className="min-h-[44px] py-2 px-3 rounded-xl bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300 font-semibold text-xs hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
-                      >
-                        <LogOut className="w-4 h-4" aria-hidden="true" />
-                        Keluar
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={handleSwitchAccount}
+                      disabled={accountBusy}
+                      className="w-full min-h-[44px] py-2 px-3 rounded-xl bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300 font-semibold text-xs hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      <ArrowRightLeft className="w-4 h-4" aria-hidden="true" />
+                      Masuk ke Ruang Lain
+                    </button>
 
                     {!isDemoMode && currentUser.coupleId && (
                       <button

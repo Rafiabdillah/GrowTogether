@@ -1,12 +1,9 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
   getAuth,
-  GoogleAuthProvider,
-  signInWithPopup,
-  signInWithRedirect,
-  getRedirectResult,
-  reauthenticateWithPopup,
+  signInAnonymously,
   signOut,
+  deleteUser,
   User,
 } from 'firebase/auth';
 import {
@@ -37,40 +34,33 @@ try {
 
 export const db = firestoreInstance;
 export const auth = getAuth(app);
-export const googleProvider = new GoogleAuthProvider();
-// Always let the user pick which Google account to use (switch account support).
-googleProvider.setCustomParameters({ prompt: 'select_account' });
 
-export async function loginWithGoogle() {
-  try {
-    const result = await signInWithPopup(auth, googleProvider);
-    return result.user;
-  } catch (error) {
-    const code = (error as { code?: string }).code;
-    // Mobile browsers and hardened desktop setups often block popups entirely.
-    if (code === 'auth/popup-blocked' || code === 'auth/operation-not-supported-in-this-environment') {
-      await signInWithRedirect(auth, googleProvider);
-      return undefined;
-    }
-    console.error('Google sign-in error:', error);
-    throw error;
-  }
-}
-
-export async function consumeRedirectResult() {
-  const result = await getRedirectResult(auth);
-  return result?.user;
-}
-
-export async function logoutUser() {
-  await signOut(auth);
-}
-
-// Deleting an account needs a fresh sign-in. The popup is required here because
-// Firebase rejects account deletion after a stale login.
-export async function reauthenticateWithGoogle(user: User) {
-  const result = await reauthenticateWithPopup(user, googleProvider);
+// A device no longer needs an account to participate: Firebase gives every
+// install its own uid, and the room code is what binds that uid to a shared room.
+// An already-signed-in account (for example a Google session from an older build)
+// is kept, so nobody is locked out of their existing room by this change.
+export async function ensureAnonymousSession(): Promise<User> {
+  if (auth.currentUser) return auth.currentUser;
+  const result = await signInAnonymously(auth);
   return result.user;
+}
+
+export async function retryAnonymousSession(): Promise<User> {
+  await signOut(auth);
+  return ensureAnonymousSession();
+}
+
+// Move this device to a different room: drop the identity, get a fresh one.
+// The old uid keeps its membership until the partner removes it, so shared
+// room data is never destroyed by switching.
+export async function resetDeviceIdentity(): Promise<User> {
+  const user = auth.currentUser;
+  if (user?.isAnonymous) {
+    await deleteUser(user).catch(() => undefined);
+  } else {
+    await signOut(auth);
+  }
+  return ensureAnonymousSession();
 }
 
 export enum OperationType {

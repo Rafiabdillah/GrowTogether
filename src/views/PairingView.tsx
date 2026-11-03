@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { friendlyAccountError } from '../lib/authErrors';
-import { Users, Copy, Check, UserPlus, Heart, AlertTriangle, Trash2 } from 'lucide-react';
+import { Users, Copy, Check, UserPlus, KeyRound, AlertTriangle, Trash2 } from 'lucide-react';
 
 export const PairingView: React.FC = () => {
   const {
@@ -11,9 +11,10 @@ export const PairingView: React.FC = () => {
     authUser,
     switchAccount,
     deleteAccount,
-    logoutUser,
   } = useApp();
-  const [mode, setMode] = useState<'create' | 'join'>('create');
+  const [name, setName] = useState(() =>
+    currentUser.displayName === 'Pengguna' ? '' : currentUser.displayName
+  );
   const [inviteCode, setInviteCode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -24,10 +25,14 @@ export const PairingView: React.FC = () => {
   const [deleteText, setDeleteText] = useState('');
 
   const handleCreateCouple = async () => {
+    if (!name.trim()) {
+      setError('Isi nama kamu dulu supaya pasangan tahu siapa yang diajak tumbuh bareng.');
+      return;
+    }
     try {
       setIsLoading(true);
       setError('');
-      await createCouple();
+      await createCouple(name.trim());
     } catch (err: any) {
       setError(err.message || 'Gagal membuat pasangan');
     } finally {
@@ -37,13 +42,17 @@ export const PairingView: React.FC = () => {
 
   const handleJoinCouple = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!name.trim()) {
+      setError('Isi nama kamu dulu supaya pasangan mengenali kamu di ruang ini.');
+      return;
+    }
     if (!inviteCode.trim()) return;
     try {
       setIsLoading(true);
       setError('');
-      const success = await joinCouple(inviteCode.trim().toUpperCase());
+      const success = await joinCouple(inviteCode.trim().toUpperCase(), name.trim());
       if (!success) {
-        setError('Kode undangan tidak valid atau sudah digunakan');
+        setError('Kode tidak dikenali atau ruangnya sudah penuh. Periksa ulang kodenya dengan pasangan.');
       }
     } catch (err: any) {
       setError(err.message || 'Gagal bergabung dengan pasangan');
@@ -109,120 +118,121 @@ export const PairingView: React.FC = () => {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-3xl bg-gradient-to-br from-amber-500 to-rose-500 mb-4">
-            <Heart className="w-8 h-8 text-white" fill="currentColor" />
+            <KeyRound className="w-8 h-8 text-white" />
           </div>
           <h1 className="text-2xl font-bold text-stone-900 dark:text-stone-100 mb-2">
-            Ajak Pasangan Kamu
+            Masuk dengan Kode Ruang
           </h1>
           <p className="text-stone-600 dark:text-stone-400">
-            Buat ruang bersama untuk tumbuh bareng
+            Tanpa akun Google — cukup nama kamu dan kode ruang bersama
           </p>
         </div>
 
-        <div className="bg-white dark:bg-stone-900 rounded-3xl p-6 shadow-xl border border-stone-200 dark:border-stone-800">
-          <div className="flex gap-2 mb-6 p-1 bg-stone-100 dark:bg-stone-800 rounded-xl">
+        <div className="bg-white dark:bg-stone-900 rounded-3xl p-6 shadow-xl border border-stone-200 dark:border-stone-800 space-y-5">
+          <label htmlFor="room-display-name" className="block">
+            <span className="text-sm font-semibold text-stone-900 dark:text-stone-100">
+              Nama kamu
+            </span>
+            <input
+              id="room-display-name"
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              maxLength={40}
+              autoComplete="given-name"
+              placeholder="misal: Rafi"
+              className="mt-1 w-full min-h-[48px] px-4 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100"
+            />
+          </label>
+
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Users className="w-4 h-4 text-amber-700 dark:text-amber-400" aria-hidden="true" />
+              <h3 className="text-sm font-semibold text-stone-900 dark:text-stone-100">
+                Kode ruang kamu
+              </h3>
+            </div>
+
+            <div className="flex items-center gap-2 p-4 bg-stone-50 dark:bg-stone-800 rounded-xl border border-stone-200 dark:border-stone-700">
+              <code className="flex-1 text-center text-lg font-mono font-bold text-stone-900 dark:text-stone-100 tracking-wider">
+                {currentUser.inviteCode || 'LOADING'}
+              </code>
+              <button
+                onClick={copyInviteCode}
+                aria-label="Salin kode ruang"
+                className="p-2 hover:bg-stone-200 dark:hover:bg-stone-700 rounded-lg transition-colors"
+              >
+                {copied ? <Check className="w-5 h-5 text-green-600" /> : <Copy className="w-5 h-5 text-stone-600 dark:text-stone-400" />}
+              </button>
+            </div>
+
             <button
-              onClick={() => setMode('create')}
-              className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${
-                mode === 'create'
-                  ? 'bg-white dark:bg-stone-700 text-stone-900 dark:text-stone-100 shadow-sm'
-                  : 'text-stone-600 dark:text-stone-400'
-              }`}
+              onClick={handleCreateCouple}
+              disabled={isLoading}
+              className="w-full min-h-[48px] px-6 rounded-xl bg-gradient-to-r from-amber-500 to-rose-500 text-white font-semibold hover:from-amber-600 hover:to-rose-600 transition-colors disabled:opacity-50"
             >
-              Buat Pasangan
-            </button>
-            <button
-              onClick={() => setMode('join')}
-              className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${
-                mode === 'join'
-                  ? 'bg-white dark:bg-stone-700 text-stone-900 dark:text-stone-100 shadow-sm'
-                  : 'text-stone-600 dark:text-stone-400'
-              }`}
-            >
-              Gabung Pasangan
+              {isLoading ? 'Memproses...' : 'Buat Ruang Baru'}
             </button>
           </div>
 
-          {mode === 'create' ? (
-            <div className="space-y-4">
-              <div className="text-center space-y-3">
-                <div className="w-12 h-12 rounded-2xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mx-auto">
-                  <Users className="w-6 h-6 text-amber-700 dark:text-amber-400" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-stone-900 dark:text-stone-100">Kode Undangan Kamu</h3>
-                  <p className="text-sm text-stone-600 dark:text-stone-400">Bagikan kode ini ke pasanganmu</p>
-                </div>
-              </div>
+          <div className="flex items-center gap-3">
+            <span className="h-px flex-1 bg-stone-200 dark:bg-stone-700" />
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-stone-400">
+              sudah punya kode?
+            </span>
+            <span className="h-px flex-1 bg-stone-200 dark:bg-stone-700" />
+          </div>
 
-              <div className="flex items-center gap-2 p-4 bg-stone-50 dark:bg-stone-800 rounded-xl border border-stone-200 dark:border-stone-700">
-                <code className="flex-1 text-center text-lg font-mono font-bold text-stone-900 dark:text-stone-100 tracking-wider">
-                  {currentUser.inviteCode || 'LOADING'}
-                </code>
-                <button
-                  onClick={copyInviteCode}
-                  className="p-2 hover:bg-stone-200 dark:hover:bg-stone-700 rounded-lg transition-colors"
-                >
-                  {copied ? <Check className="w-5 h-5 text-green-600" /> : <Copy className="w-5 h-5 text-stone-600 dark:text-stone-400" />}
-                </button>
-              </div>
-
-              <button
-                onClick={handleCreateCouple}
-                disabled={isLoading}
-                className="w-full min-h-[48px] px-6 rounded-xl bg-gradient-to-r from-amber-500 to-rose-500 text-white font-semibold hover:from-amber-600 hover:to-rose-600 transition-colors disabled:opacity-50"
-              >
-                {isLoading ? 'Membuat...' : 'Buat Ruang Bersama'}
-              </button>
-
-              <p className="text-xs text-center text-stone-500 dark:text-stone-400">
-                Pasangan kamu bisa gabung dengan kode di atas
-              </p>
-            </div>
-          ) : (
-            <form onSubmit={handleJoinCouple} className="space-y-4">
-              <div className="text-center space-y-3">
-                <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-900/30 flex items-center justify-center mx-auto">
-                  <UserPlus className="w-6 h-6 text-rose-700 dark:text-rose-400" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-stone-900 dark:text-stone-100">Masukkan Kode Undangan</h3>
-                  <p className="text-sm text-stone-600 dark:text-stone-400">Dapatkan kode dari pasanganmu</p>
-                </div>
-              </div>
-
+          <form onSubmit={handleJoinCouple} className="space-y-3">
+            <label htmlFor="partner-room-code" className="block">
+              <span className="flex items-center gap-2 text-sm font-semibold text-stone-900 dark:text-stone-100">
+                <UserPlus className="w-4 h-4 text-rose-700 dark:text-rose-400" aria-hidden="true" />
+                Kode ruang pasangan
+              </span>
               <input
+                id="partner-room-code"
                 type="text"
                 value={inviteCode}
                 onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
                 placeholder="MASUKKAN KODE"
-                maxLength={8}
-                className="w-full min-h-[48px] px-4 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-center text-lg font-mono font-bold tracking-widest text-stone-900 dark:text-stone-100"
+                maxLength={12}
+                autoComplete="off"
+                className="mt-1 w-full min-h-[48px] px-4 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-center text-lg font-mono font-bold tracking-widest text-stone-900 dark:text-stone-100"
               />
+            </label>
 
-              <button
-                type="submit"
-                disabled={isLoading || !inviteCode.trim()}
-                className="w-full min-h-[48px] px-6 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 text-white font-semibold hover:from-rose-600 hover:to-pink-600 transition-colors disabled:opacity-50"
-              >
-                {isLoading ? 'Bergabung...' : 'Gabung Sekarang'}
-              </button>
+            <button
+              type="submit"
+              disabled={isLoading || !inviteCode.trim()}
+              className="w-full min-h-[48px] px-6 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 text-white font-semibold hover:from-rose-600 hover:to-pink-600 transition-colors disabled:opacity-50"
+            >
+              {isLoading ? 'Bergabung...' : 'Gabung Sekarang'}
+            </button>
+          </form>
 
-              <p className="text-xs text-center text-stone-500 dark:text-stone-400">
-                Minta pasangan membuka tab “Buat Pasangan” dan menekan “Buat Ruang Bersama” sebelum kode dipakai.
-              </p>
-            </form>
-          )}
+          <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900">
+            <KeyRound className="w-4 h-4 mt-0.5 shrink-0 text-amber-700 dark:text-amber-400" aria-hidden="true" />
+            <p className="text-[11px] leading-relaxed text-amber-900 dark:text-amber-200">
+              Simpan kode ruangmu. Tanpa akun, kode ini satu-satunya jalan kembali ke ruang ini
+              di perangkat baru.
+            </p>
+          </div>
 
           {error && (
-            <p className="text-sm text-red-600 dark:text-red-400 text-center mt-4">{error}</p>
+            <p role="alert" className="text-sm text-red-600 dark:text-red-400 text-center">{error}</p>
           )}
         </div>
 
         <div className="mt-5 text-center space-y-2">
-          <p className="text-[11px] text-stone-500 dark:text-stone-400 break-all">
-            Masuk sebagai <span className="font-semibold">{authUser?.email || 'akun Google'}</span>
+          <p className="text-[11px] text-stone-500 dark:text-stone-400">
+            ID perangkat: <span className="font-mono font-semibold">{authUser?.uid.slice(0, 8) || '—'}</span>
           </p>
+          {authUser && !authUser.isAnonymous && (
+            <p className="text-[11px] leading-relaxed text-amber-800 dark:text-amber-300">
+              Perangkat ini masih memakai akun lama. Ruang yang sudah terisi dua orang tidak bisa
+              dimasuki lagi dengan akun lama setelah kamu pindah ruang.
+            </p>
+          )}
           {!showDelete ? (
             <div className="flex items-center justify-center gap-2 text-xs font-semibold text-stone-600 dark:text-stone-300">
               <button
@@ -231,16 +241,7 @@ export const PairingView: React.FC = () => {
                 disabled={accountBusy}
                 className="min-h-[44px] px-2 hover:underline disabled:opacity-60"
               >
-                Ganti akun
-              </button>
-              <span aria-hidden="true">·</span>
-              <button
-                type="button"
-                onClick={() => void logoutUser()}
-                disabled={accountBusy}
-                className="min-h-[44px] px-2 hover:underline disabled:opacity-60"
-              >
-                Keluar
+                Masuk ke ruang lain
               </button>
               <span aria-hidden="true">·</span>
               <button
@@ -253,7 +254,7 @@ export const PairingView: React.FC = () => {
                 disabled={accountBusy}
                 className="min-h-[44px] px-2 text-rose-600 dark:text-rose-400 hover:underline disabled:opacity-60"
               >
-                Hapus akun
+                Hapus data perangkat ini
               </button>
             </div>
           ) : (
@@ -261,7 +262,7 @@ export const PairingView: React.FC = () => {
               <div className="flex items-start gap-2 text-rose-700 dark:text-rose-400">
                 <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
                 <p className="text-[11px] leading-relaxed">
-                  Profil dan data akun ini dihapus permanen. Ketik <strong>HAPUS</strong> untuk
+                  Profil dan data di perangkat ini dihapus permanen. Ketik <strong>HAPUS</strong> untuk
                   melanjutkan.
                 </p>
               </div>

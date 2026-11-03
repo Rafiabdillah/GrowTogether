@@ -24,14 +24,14 @@ GrowTogether dipasang sebagai PWA di Android, iOS, maupun desktop — satu aplik
 
 Unduhan build statis tersedia di [Releases](https://github.com/Rafiabdillah/GrowTogether/releases).
 
-> Login Google di URL GitHub Pages memerlukan `rafiabdillah.github.io` pada **Firebase Authentication → Settings → Authorized domains**. Tanpa itu, gunakan mode demo atau hosting di domain Firebase (`*.web.app`).
+> Masuk tanpa akun memakai Firebase Anonymous. Aktifkan **Authentication → Sign-in method → Anonymous**; tanpa itu aplikasi menampilkan kartu "Sesi perangkat gagal dibuka". Mode demo tetap berjalan tanpa Firebase.
 
 ## Autentikasi dan Mode Demo
 
 Aplikasi punya dua jalur masuk:
 
-1. **Masuk dengan Google** — memakai Firebase Auth (popup). Setelah masuk, profil pengguna dibuat otomatis di koleksi `users`, lalu pengguna dapat membuat ruang pasangan atau bergabung memakai kode undangan.
-2. **Mode Demo** — menjelajahi seluruh UI dengan data contoh Rama & Shinta tanpa login. Data hanya disimpan di localStorage perangkat dan tidak menulis ke Firestore.
+1. **Sesi anonim + kode ruang** — setiap pemasangan membuka sesi Firebase Anonymous (tanpa login apa pun), lalu pengguna mengetik namanya dan membuat ruang dengan **kode ruang**, atau bergabung memakai kode dari pasangan.
+2. **Mode Demo** — menjelajahi seluruh UI dengan data contoh Rama & Shinta tanpa sesi Firebase. Data hanya disimpan di localStorage perangkat dan tidak menulis ke Firestore.
 
 Keluar dari mode demo tersedia di **Pengaturan → Kelola Data → Akun**.
 
@@ -62,7 +62,7 @@ Buka http://localhost:3000. Perintah lain:
 Konfigurasi proyek Firebase dibaca dari `firebase-applet-config.json` di root proyek (berisi `apiKey`, `projectId`, `firestoreDatabaseId`, dan field lain). Untuk memakai proyek sendiri:
 
 1. Ganti isi `firebase-applet-config.json` dengan konfigurasi Web App dari Firebase Console, lalu sesuaikan `projectId` di `.firebaserc`.
-2. Aktifkan **Authentication → Sign-in method → Google**.
+2. Aktifkan **Authentication → Sign-in method → Anonymous**.
 3. Tambahkan domain aplikasi (mis. `localhost` dan domain produksi) ke **Authentication → Settings → Authorized domains**.
 4. Buat database Firestore, lalu deploy aturan keamanan:
 
@@ -99,8 +99,8 @@ Sertakan file `.nojekyll` di root branch `gh-pages`.
 - [x] `npm run lint` dan `npm run build` lulus.
 - [x] Aplikasi live di HTTPS: https://rafiabdillah.github.io/GrowTogether/
 - [ ] `firestore.rules` sudah dipublikasikan ke proyek Firebase yang dipakai.
-- [ ] Google Sign-In aktif dan domain hosting ada di Authorized domains.
-- [ ] Dua akun Google berbeda berhasil membuat/menggabungkan ruang dan saling melihat progres.
+- [ ] Anonymous sign-in aktif dan domain hosting ada di Authorized domains.
+- [ ] Dua perangkat berbeda berhasil membuat/menggabungkan ruang lewat kode dan saling melihat progres.
 - [x] `firebase-applet-config.json` tidak berisi kredensial admin (hanya konfigurasi web publik).
 
 ## Keamanan Firestore

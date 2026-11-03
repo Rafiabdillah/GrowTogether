@@ -6,7 +6,7 @@ GrowTogether adalah aplikasi web progresif (PWA). Satu aplikasi yang sama dipaka
 
 > Pemasangan PWA hanya bisa dari alamat **HTTPS**. Jika kamu meng-hosting sendiri, ganti URL di atas dengan alamat HTTPS milikmu.
 
-> **Login Google:** popup login hanya berfungsi jika domain hosting terdaftar di Firebase Authentication → Settings → Authorized domains. Tambahkan `rafiabdillah.github.io` (atau domainmu) sebelum memakai sinkronisasi pasangan. Mode demo tetap bisa dipakai tanpa langkah ini.
+> **Masuk tanpa akun:** GrowTogether tidak lagi memakai login Google. Setiap pemasangan mendapat sesi anonim dari Firebase, dan ruang bersama dibuka dengan **kode ruang**. Supaya sesi anonim bisa dibuat, aktifkan **Authentication → Sign-in method → Anonymous** pada project Firebase (`growtogether-rafiabdillah`). Tanpa langkah ini aplikasi menampilkan kartu "Sesi perangkat gagal dibuka"; Mode demo tetap bisa dipakai.
 
 ## Android (Chrome/Edge)
 
@@ -35,8 +35,9 @@ Firefox dan Safari desktop belum mendukung pemasangan PWA; aplikasi tetap bisa d
 
 ## Setelah terpasang
 
-- Data tersimpan di perangkat (mode demo) atau tersinkron lewat akun Google (mode pasangan).
-- Untuk sinkronisasi berdua: masuk dengan Google → **Pengaturan → Hubungkan Pasangan** → bagikan kode undangan ke pasangan → pasangan memasukkan kode tersebut.
+- Data tersimpan di perangkat (mode demo) atau tersinkron lewat kode ruang (mode pasangan).
+- Untuk sinkronisasi berdua: isi **nama kamu** di layar "Masuk dengan Kode Ruang" → tekan **Buat Ruang Baru** → bagikan kodenya ke pasangan → pasangan memasukkan kode itu di kolom "Kode ruang pasangan".
+- **Simpan kode ruangmu.** Tanpa akun, kode itu satu-satunya jalan masuk ke ruang yang sama, dan data ruang terikat ke ID perangkat (bisa dilihat di layar yang sama).
 - Aplikasi tetap bisa dibuka saat offline untuk data yang sudah pernah dimuat; perubahan disinkronkan saat kembali online.
 - Pembaruan aplikasi berjalan otomatis saat ada versi baru dan koneksi internet.
 
@@ -50,11 +51,11 @@ npm run build
 npm run preview
 ```
 
-Buka `http://localhost:4173`. Login Google dari `localhost` biasanya sudah diizinkan Firebase, tetapi PWA tidak bisa dipasang dari `http://` selain `localhost`.
+Buka `http://localhost:4173`. Sesi anonim Firebase dibuat otomatis selama provider Anonymous sudah diaktifkan, tetapi PWA tidak bisa dipasang dari `http://` selain `localhost`.
 
 ## Build yang disertakan
 
-Arsip `GrowTogether-1.0.8-web.zip` berisi hasil build statis (`dist/`) dan panduan ini. Ekstrak lalu unggah isi foldernya ke **root** hosting HTTPS apa pun (Firebase Hosting, Netlify, Vercel, Nginx), atau ikuti `README.md` untuk deploy ke Firebase Hosting dengan `npm run deploy:hosting`.
+Arsip `GrowTogether-1.1.0-web.zip` berisi hasil build statis (`dist/`) dan panduan ini. Ekstrak lalu unggah isi foldernya ke **root** hosting HTTPS apa pun (Firebase Hosting, Netlify, Vercel, Nginx), atau ikuti `README.md` untuk deploy ke Firebase Hosting dengan `npm run deploy:hosting`.
 
 Build zip memakai base path `/`, jadi paling mudah di-hosting di root domain/subdomain. Untuk hosting di subfolder (seperti GitHub Pages `/GrowTogether/`), build ulang dengan:
 

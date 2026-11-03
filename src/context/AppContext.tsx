@@ -31,7 +31,14 @@ import {
   toLocalDateString,
 } from '../data/mockData';
 import { sound } from '../lib/audio';
-import { db, auth, loginWithGoogle, reauthenticateWithGoogle, logoutUser as firebaseLogoutUser } from '../lib/firebase';
+import { friendlyAccountError } from '../lib/authErrors';
+import {
+  db,
+  auth,
+  ensureAnonymousSession,
+  retryAnonymousSession,
+  resetDeviceIdentity,
+} from '../lib/firebase';
 import {
   collection,
   doc,
@@ -63,9 +70,11 @@ interface AppContextType {
   isAuthLoading: boolean;
   isProfileLoading: boolean;
   isDemoMode: boolean;
-  loginWithGoogle: () => Promise<User | undefined>;
+  authError: string;
+  retryAuth: () => Promise<void>;
+  setDisplayName: (name: string) => void;
   enterDemoMode: () => void;
-  logoutUser: () => Promise<void>;
+  exitDemoMode: () => void;
   switchAccount: () => Promise<void>;
   deleteAccount: () => Promise<void>;
   leaveCouple: () => Promise<void>;
@@ -112,8 +121,8 @@ interface AppContextType {
   resetToEmptyState: () => void;
   loadDemoData: () => void;
   setupUserProfile: (user: User) => Promise<void>;
-  createCouple: () => Promise<void>;
-  joinCouple: (inviteCode: string) => Promise<boolean>;
+  createCouple: (displayName?: string) => Promise<void>;
+  joinCouple: (inviteCode: string, displayName?: string) => Promise<boolean>;
 
   // Actions
   toggleHabit: (habitId: string, targetDate?: string) => Promise<void>;
@@ -298,18 +307,27 @@ function fireConfetti(options: confetti.Options) {
 }
 
 function generateInviteCode(): string {
+  // The code is the only thing guarding a room, so it is long enough that
+  // guessing one is not a realistic route in.
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let code = '';
   if (typeof crypto !== 'undefined' && 'getRandomValues' in crypto) {
-    const values = new Uint32Array(6);
+    const values = new Uint32Array(8);
     crypto.getRandomValues(values);
     for (const value of values) code += alphabet[value % alphabet.length];
   } else {
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 8; i++) {
       code += alphabet[Math.floor(Math.random() * alphabet.length)];
     }
   }
   return code;
+}
+
+const DISPLAY_NAME_KEY = 'gt_display_name';
+
+function readPreferredDisplayName(): string {
+  const stored = readStorage(DISPLAY_NAME_KEY);
+  return typeof stored === 'string' ? stored.trim().slice(0, 40) : '';
 }
 
 // A hug that arrived while the phone was closed should still greet the partner
@@ -373,6 +391,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isProfileLoading, setIsProfileLoading] = useState<boolean>(
     () => readStorage('gt_demo_mode') !== 'true'
   );
+  const [authError, setAuthError] = useState<string>('');
   const lastAuthUidRef = useRef<string | null>(null);
   const [isDemoMode, setIsDemoMode] = useState<boolean>(
     () => readStorage('gt_demo_mode') === 'true'
@@ -419,7 +438,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     authUser
       ? {
           id: authUser.uid,
-          displayName: authUser.displayName || authUser.email?.split('@')[0] || 'Pengguna',
+          displayName: authUser.displayName || authUser.email?.split('@')[0] || readPreferredDisplayName() || 'Pengguna',
           email: authUser.email || '',
           photoURL: authUser.photoURL || undefined,
           colorTheme: 'coral',
@@ -474,6 +493,55 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setLastSentReaction(null);
   };
 
+  // Opening the app is enough: the device gets its own Firebase identity without
+  // any account to remember or password to type.
+  useEffect(() => {
+    if (readStorage('gt_demo_mode') === 'true') {
+      setIsAuthLoading(false);
+      return;
+    }
+    void (async () => {
+      try {
+        await ensureAnonymousSession();
+        setAuthError('');
+      } catch (error) {
+        setAuthError(friendlyAccountError(error));
+        setIsAuthLoading(false);
+      }
+    })();
+  }, []);
+
+  const retryAuth = async () => {
+    setAuthError('');
+    try {
+      await retryAnonymousSession();
+    } catch (error) {
+      setAuthError(friendlyAccountError(error));
+    }
+  };
+
+  // An anonymous identity carries no name, so the room screen collects one and
+  // it is stored both on the device and on the profile document.
+  const ensureDisplayName = async (name?: string): Promise<UserProfile> => {
+    const clean = (name ?? '').trim().slice(0, 40);
+    if (!clean) return currentUser;
+    writeStorage(DISPLAY_NAME_KEY, clean);
+    const uid = auth.currentUser?.uid;
+    if (!uid) return currentUser;
+    const me: UserProfile = { ...currentUser, id: uid, displayName: clean };
+    setUsersState((prev) => ({ ...prev, [uid]: me }));
+    try {
+      await cloudSetDoc(doc(db, 'users', uid), { displayName: clean }, { merge: true });
+    } catch (error) {
+      console.warn('displayName patch:', error);
+    }
+    return me;
+  };
+
+  const setDisplayName = (name: string) => {
+    void ensureDisplayName(name);
+  };
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setAuthUser(user);
@@ -514,32 +582,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     cloudSyncEnabled = !!authUser && !isDemoMode;
   }, [authUser, isDemoMode]);
 
-  const logoutUser = async () => {
-    try {
-      await firebaseLogoutUser();
-    } finally {
-      cloudSyncEnabled = false;
-      lastAuthUidRef.current = null;
-      setIsDemoMode(false);
-      writeStorage('gt_demo_mode', 'false');
-      setIsProfileLoading(false);
-      resetCloudSessionState();
-      setCurrentUserId('user_rama_01');
-    }
-  };
-
-  // Reopen the Google account chooser and replace the current session.
+  // There is no account to sign out of: leaving means dropping this device's
+  // identity and starting fresh, which lands on the room-code screen.
   const switchAccount = async () => {
-    await loginWithGoogle();
+    removeStorage(DISPLAY_NAME_KEY);
+    await resetDeviceIdentity();
   };
 
-  // Delete the signed-in account: personal documents first (security rules
-  // require room membership), then leave/hand over the room, then the profile.
+  // Delete this device's room membership for good: personal documents first
+  // (security rules require room membership), then leave/hand over the room,
+  // then the profile. Anonymous identities need no re-authentication step.
   const deleteAccount = async () => {
     const user = auth.currentUser;
-    if (!user) throw new Error('Sesi berakhir. Silakan masuk ulang.');
+    if (!user) throw new Error('Sesi berakhir. Muat ulang halaman lalu coba lagi.');
 
-    await reauthenticateWithGoogle(user);
     cloudSyncEnabled = true;
 
     const coupleId = currentUser.coupleId;
@@ -651,12 +707,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await deleteUser(user);
 
     removeStorage(STATE_KEY);
+    removeStorage(DISPLAY_NAME_KEY);
     writeStorage('gt_demo_mode', 'false');
     lastAuthUidRef.current = null;
     setIsDemoMode(false);
     setIsProfileLoading(false);
     resetCloudSessionState();
     setCurrentUserId('user_rama_01');
+
+    // The device gets a brand-new identity immediately, so the room-code screen
+    // is ready without a reload.
+    try {
+      await ensureAnonymousSession();
+      setAuthError('');
+    } catch (error) {
+      setAuthError(friendlyAccountError(error));
+    }
   };
 
   // Leave the shared room without deleting the account. The partner keeps the
@@ -739,7 +805,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (!userSnap.exists()) {
         const newUser: UserProfile = {
           id: user.uid,
-          displayName: user.displayName || user.email?.split('@')[0] || 'Pengguna',
+          displayName: readPreferredDisplayName() || user.displayName || user.email?.split('@')[0] || 'Pengguna',
           email: user.email || '',
           photoURL: user.photoURL || undefined,
           colorTheme: 'coral',
@@ -755,7 +821,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const repaired: UserProfile = {
         ...userData,
         id: user.uid,
-        displayName: userData.displayName || user.displayName || 'Pengguna',
+        displayName: userData.displayName || readPreferredDisplayName() || user.displayName || 'Pengguna',
         email: userData.email || user.email || '',
         inviteCode: userData.inviteCode || generateInviteCode(),
       };
@@ -795,7 +861,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               ...prev,
               [user.uid]: {
                 id: user.uid,
-                displayName: user.displayName || user.email?.split('@')[0] || 'Pengguna',
+                displayName: readPreferredDisplayName() || user.displayName || user.email?.split('@')[0] || 'Pengguna',
                 email: user.email || '',
                 photoURL: user.photoURL || undefined,
                 colorTheme: 'coral',
@@ -1357,8 +1423,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // to tell "the network is fine" apart from "your changes never leave the phone".
   const runSyncTest = async (): Promise<{ ok: boolean; detail: string }> => {
     const coupleId = cloudIdentity.coupleId;
-    if (!authUser) return { ok: false, detail: 'Belum masuk dengan akun Google.' };
-    if (!coupleId) return { ok: false, detail: 'Akun ini belum punya ruang bersama.' };
+    if (!authUser) return { ok: false, detail: 'Sesi perangkat belum terbuka.' };
+    if (!coupleId) return { ok: false, detail: 'Ruang belum dibuat. Pakai kode ruang dulu.' };
 
     const probeId = `probe_${Date.now()}`;
     const ref = doc(db, 'reactions', probeId);
@@ -1832,30 +1898,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     sound.playHighFive();
   };
 
-  // Create a private room owned by the signed-in user
-  const createCouple = async (): Promise<void> => {
-    if (!authUser) throw new Error('Silakan masuk terlebih dahulu.');
-    if (currentUser.coupleId) return;
+  // Demo data lives only in this tab, so the reliable way back to the real
+  // session is a fresh boot through the anonymous-sign-in path.
+  const exitDemoMode = () => {
+    writeStorage('gt_demo_mode', 'false');
+    window.location.reload();
+  };
 
-    // Another device may have paired this account after the profile was cached.
-    const freshSnap = await getDoc(doc(db, 'users', currentUser.id)).catch(() => null);
+  // Create a private room owned by the signed-in user
+  const createCouple = async (displayName?: string): Promise<void> => {
+    if (!authUser) throw new Error('Sesi perangkat belum siap. Muat ulang halaman.');
+
+    const me = await ensureDisplayName(displayName);
+    if (me.coupleId) return;
+
+    // Another device may have paired this identity after the profile was cached.
+    const freshSnap = await getDoc(doc(db, 'users', me.id)).catch(() => null);
     const freshCoupleId = (freshSnap?.data() as Partial<UserProfile> | undefined)?.coupleId;
     if (freshCoupleId) {
       setUsersState((prev) => ({
         ...prev,
-        [currentUser.id]: { ...currentUser, coupleId: freshCoupleId },
+        [me.id]: { ...me, coupleId: freshCoupleId },
       }));
       return;
     }
 
     const now = new Date().toISOString();
-    const inviteCode = currentUser.inviteCode || generateInviteCode();
+    const inviteCode = me.inviteCode || generateInviteCode();
     const coupleId = `couple_${authUser.uid.slice(0, 10)}_${Date.now()}`;
     const newCouple: Couple = {
       id: coupleId,
-      user1Id: currentUser.id,
+      user1Id: me.id,
       user2Id: '',
-      user1Profile: { ...currentUser, inviteCode },
+      user1Profile: { ...me, inviteCode },
       combinedStreak: 0,
       graceDayUsedThisWeek: false,
       weeklyReadingMinutesGoal: 300,
@@ -1874,18 +1949,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     await cloudSetDoc(doc(db, 'couples', coupleId), newCouple);
     await cloudSetDoc(
-      doc(db, 'users', currentUser.id),
+      doc(db, 'users', me.id),
       { coupleId, inviteCode },
       { merge: true }
     );
     await cloudSetDoc(
       doc(db, 'inviteCodes', inviteCode),
       {
-        userId: currentUser.id,
+        userId: me.id,
         coupleId,
-        ownerName: currentUser.displayName,
-        photoURL: currentUser.photoURL ?? null,
-        colorTheme: currentUser.colorTheme,
+        ownerName: me.displayName,
+        photoURL: me.photoURL ?? null,
+        colorTheme: me.colorTheme,
         updatedAt: now,
       },
       { merge: true }
@@ -1894,20 +1969,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCouple(newCouple);
     setUsersState((prev) => ({
       ...prev,
-      [currentUser.id]: { ...currentUser, coupleId, inviteCode },
+      [me.id]: { ...me, coupleId, inviteCode },
     }));
     clearLocalCollections();
     sound.playHighFive();
   };
 
   // Join the partner's room using their invite code
-  const joinCouple = async (rawCode: string): Promise<boolean> => {
+  const joinCouple = async (rawCode: string, displayName?: string): Promise<boolean> => {
     if (!authUser) return false;
+    const me = await ensureDisplayName(displayName);
     const code = rawCode.trim().toUpperCase();
-    if (!code || code === currentUser.inviteCode.toUpperCase()) return false;
+    if (!code || code === (me.inviteCode || '').toUpperCase()) return false;
 
     const inviteSnap = await getDoc(doc(db, 'inviteCodes', code));
-    if (!inviteSnap.exists()) return false;
+    if (!inviteSnap.exists()) {
+      emitSyncEvent({
+        at: Date.now(),
+        kind: 'listen',
+        target: 'gabung ruang',
+        ok: false,
+        message: `kode ${code} tidak dikenali di server`,
+      });
+      return false;
+    }
 
     const invite = inviteSnap.data() as {
       userId?: string;
@@ -1918,10 +2003,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     const partnerId = invite.userId;
     const targetCoupleId = invite.coupleId;
-    if (!partnerId || !targetCoupleId || partnerId === currentUser.id) return false;
+    if (!partnerId || !targetCoupleId || partnerId === me.id) return false;
 
     // Trust the stored profile over local state: it may be stale on a new device.
-    const mySnap = await getDoc(doc(db, 'users', currentUser.id)).catch(() => null);
+    const mySnap = await getDoc(doc(db, 'users', me.id)).catch(() => null);
     const myFresh = (mySnap?.data() as Partial<UserProfile> | undefined) ?? {};
     const previousCoupleId =
       myFresh.coupleId && myFresh.coupleId !== targetCoupleId ? myFresh.coupleId : null;
@@ -1929,7 +2014,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const prevSnap = await getDoc(doc(db, 'couples', previousCoupleId)).catch(() => null);
       const prev = prevSnap?.data() as Partial<Couple> | undefined;
       // Already in a room with someone else: refuse to silently abandon it.
-      if (prev?.user2Id && prev.user2Id !== currentUser.id) return false;
+      if (prev?.user2Id && prev.user2Id !== me.id) return false;
     }
 
     const partner: UserProfile = usersState[partnerId] ?? {
@@ -1947,23 +2032,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!coupleSnap.exists()) return false;
 
     const existing = normalizeCouple(coupleSnap.id, coupleSnap.data() as Partial<Couple>);
-    if (existing.user2Id && existing.user2Id !== currentUser.id) return false;
+    if (existing.user2Id && existing.user2Id !== me.id) {
+      // Two seats are already taken. Entering is only possible after a slot is
+      // freed, and the reason has to reach the user instead of a blank failure.
+      emitSyncEvent({
+        at: Date.now(),
+        kind: 'write',
+        target: 'gabung ruang',
+        ok: false,
+        message: 'ruang ini sudah berisi dua orang; minta pasangan keluar dari ruang dulu bila kamu pindah HP',
+      });
+      return false;
+    }
 
     const now = new Date().toISOString();
     const joinedCouple: Couple = {
       ...existing,
-      user2Id: currentUser.id,
-      user2Profile: currentUser,
+      user2Id: me.id,
+      user2Profile: me,
       updatedAt: now,
     };
 
     await cloudSetDoc(
       coupleRef,
-      { user2Id: currentUser.id, user2Profile: currentUser, updatedAt: now },
+      { user2Id: me.id, user2Profile: me, updatedAt: now },
       { merge: true }
     );
     await cloudSetDoc(
-      doc(db, 'users', currentUser.id),
+      doc(db, 'users', me.id),
       { coupleId: targetCoupleId },
       { merge: true }
     );
@@ -1982,7 +2078,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCouple(joinedCouple);
     setUsersState((prev) => ({
       ...prev,
-      [currentUser.id]: { ...currentUser, coupleId: targetCoupleId },
+      [me.id]: { ...me, coupleId: targetCoupleId },
       [partner.id]: { ...partner, coupleId: targetCoupleId },
     }));
     clearLocalCollections();
@@ -2370,9 +2466,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     isAuthLoading,
     isProfileLoading,
     isDemoMode,
-    loginWithGoogle,
+    authError,
+    retryAuth,
+    setDisplayName,
     enterDemoMode,
-    logoutUser,
+    exitDemoMode,
     switchAccount,
     deleteAccount,
     leaveCouple,
