@@ -1,78 +1,73 @@
-# GrowTogether v1.2.0 — Notifikasi: pengingat harian dan kabar pasangan
+# GrowTogether v1.2.2 — Kedua HP benar-benar memakai angka yang sama
 
-Sebelum versi ini, pasangan harus membuka aplikasi duluan supaya tahu kabar baru.
-Sekarang aplikasi yang menyampaikan: pelukan, kesepakatan yang menunggu jawaban,
-cerita jurnal, kabar check-in, dan pengingat habit/check-in pada jam yang kamu pilih.
+Versi ini menutup tiga relasi yang di v1.2.1 masih bisa membuat dua HP berbeda
+jawaban untuk ruang yang sama: satu HP bisa diam-diam memakai build lama, streak
+bisa beda angka setelah lewat tengah malam, dan saldo XP bisa tampil negatif yang
+akhirnya memberi dekorasi gratis.
 
 ## Yang dibuat
 
-- **Service worker sendiri** (`src/sw.ts`). Sebelumnya memakai `generateSW` yang
-  tidak bisa dipasangi listener, sedang notifikasi butuh `notificationclick`,
-  `push`, dan `periodicsync`. Build pindah ke `injectManifest`; isi cache offline
-  tetap sama (27 file, fallback `index.html`, font disimpan setahun).
-- **Enam jenis notifikasi** yang bisa dinyalakan/matiakan satu-satu di
-  Pengaturan → Notifikasi, plus dua jam pengingat (check-in malam, habit yang belum
-  selesai). Preferensi tersimpan di perangkat, jadi pasangan tidak diganggu sama.
-- **Izin diminta otomatis** tepat setelah perangkat masuk ke ruang bersama, dan
-  hanya sekali per perangkat. Di layar masuk atau mode demo tidak ada tanya-tanya.
-- **Bentuk pesannya diperhatikan**: bahasa `id`, ikon aplikasi, badge monokrom
-  (Chrome menampilkan badge sebagai siluet, jadi ikon berwarna jadi blok penuh),
-  getar tiga ketuk untuk kabar penting, senyap untuk jurnal/check-in, dan
-  `tag` supaya pengingat yang sama tidak menumpuk.
-- **Tautan dalam**: menyentuh notifikasi membuka tab yang relevan (Hari Ini, Sanksi,
-  Kita, atau Progres). Kalau aplikasinya sudah terbuka, tab-nya saja yang pindah,
-  tidak dimuat ulang. Tombol **Balas pelukan** pada notifikasi langsung mengirim
-  reaksi balik tanpa membuka aplikasi.
-- Pengingat bisa jalan **walau aplikasi tertutup** lewat `TimestampTrigger`
-  (Chrome). Browser tanpa dukungan itu tetap dapat pengingat selama aplikasi
-  terbuka — diuji dan fallback-nya dipakai, bukan gagal diam-diam.
+- **HP yang memakai build lama sekarang diberitahu.** Service worker menyiarkan
+  nomornya tiap kali mengambil alih, dan halaman yang masih menjalankan build lama
+  memunculkan baris: **Versi baru v… sudah terpasang — halaman ini masih berjalan
+  pada v…** dengan tombol **Muat ulang** dan tombol tunda. Baris ini hanya muncul
+  kalau build baru benar-benar sudah terpasang, bukan dugaan.
+- **Streak ikut hari nyata, bukan hari saat aplikasi dibuka.** Sebelumnya HP yang
+  dibiarkan terbuka dari kemarin sampai hari berikutnya tetap menghitung streak
+  dari kemarin, sementara HP pasangan menghitung dari hari baru — dua angka untuk
+  ruang yang sama. Sekarang angkanya dijangkar ke hari nyata, dan penyimulasi
+  "maju 1 hari" di mode demo tetap bertingkah seperti hari yang benar-benar lewat.
+- **XP tidak bisa negatif lagi, di tampilan maupun di server.** XP dipakai ganda
+  sebagai poin level dan sebagai uang toko, jadi satu pembatalan habit dari saldo
+  nol menghasilkan angka minus yang membuat semua dekorasi tampak bisa dibuka.
+  Tampilan menjepitnya ke 0, dan aturan Firestore menolak penulisan saldo di bawah
+  0 serta menolak daftar dekorasi diubah menjadi bukan-daftar. Aturan ini sudah
+  dipublikasikan ke proyek `growtogether-rafiabdillah`.
+- **Harness uji runtime ikut ke dalam repo**: `scripts/shop-live.cjs`
+  (`npm run test:runtime`). Jalur emulator/Chrome dibaca dari environment
+  variable (`GT_JDK`, `GT_CLI`, `GT_SYNCTEST`, `GT_CHROME`) dan nomor versi yang
+  dibaca dari `package.json`, jadi ujiannya tidak perlu diedit lagi tiap rilis.
+  Ekspresi yang disuntik ke browser dikompilasi lebih dulu supaya salah ketik
+  kelihatan saat itu juga, bukan setelah bermenit-menit menjalankan emulator.
 
-## Dua hal yang cuma kelihatan setelah diuji di browser asli
+## Bukti jalan (43 pemeriksaan hijau, 0 gagal)
 
-1. **Notifikasi senyap sebelumnya hilang tanpa pesan.** Aturan browser:
-   `silent: true` tidak boleh dipakai bersama `vibrate`. Payload kita selalu
-   menyertakan pola getar, jadi notifikasi jurnal dan kabar check-in **ditolak
-   browser** dan errornya tertelan. Sekarang `vibrate` dilepas saat senyap, dan
-   kegagalan pengiriman ditulis ke konsol.
-2. **`client.focus()` bisa ditolak browser** (Windows headless menolaknya; di
-   Android juga terjadi). Dulu penolakan itu membuat seluruh proses klik gagal.
-   Sekarang menaikkan jendela dianggap hiasan: tab tetap berpindah walau focus
-   ditolak.
+Dua rangkaian pada Chrome asli dan emulator Firestore dengan aturan **asli**:
 
-## Bukti jalan (bukan hanya "kode sudah ditulis")
+- Fase aturan (20 pemeriksaan): belanja lewat transaksi oleh kedua anggota, orang
+  asing ditolak baca dan tulis, `increment(+10)` dan transaksi memakai saldo yang
+  sama, lalu tiga penulisan yang harus gagal: saldo `-50`, `increment(-600)` dari
+  saldo 560, dan `unlockedDecorations` jadi teks. Ketiganya `permission-denied`
+  dan dokumennya terbukti tidak berubah; `+10`, saldo 0, dan cuaca tetap lolos.
+- Fase aplikasi (23 pemeriksaan): masuk kode ruang → streak 8 hari hanya dari log
+  bersama; belanja dua dekorasi, 900 → 550 XP, kedua dekorasi tergambar di taman;
+  dengan 100 XP tidak ada item yang bisa dibuka. Lalu tiga relasi baru:
+  - saldo `-50` yang dipaksa di server terbaca **Toko Dekorasi (0 XP)** dan tanda
+    minus tidak muncul di layar;
+  - halaman yang jamnya didorong lewat tengah malam berubah **8 hari → 9 hari**
+  - setelah build kedua dengan nomor lebih tinggi dipasang, baris **Versi baru
+    v9.9.9 … masih berjalan pada v1.2.2** muncul, dan **Muat ulang** dari baris itu
+    benar-benar pindah ke build baru (penanda versi berubah jadi v9.9.9 dan
+    barisnya hilang).
+- `npm run lint` bersih (tsconfig aplikasi + tsconfig worker).
 
-Dua rangkaian uji pada Chrome asli, semuanya hijau:
+## Yang diketahui belum rapi
 
-- Uji lokal (18 pemeriksaan): worker terdaftar, izin, tab Notifikasi muncul,
-  saklar per jenis tersimpan, payload lengkap (`icon`, `badge`, `lang`,
-  `timestamp`, `actions`), pembatalan pengingat, klik notifikasi membuka tab
-  `couple`, dan notifikasi tertutup setelah diklik.
-- Uji dua identitas pada emulator Firestore lokal: perangkat masuk anonim → masuk
-  ruang → tab-nya disengaja di latar belakang (app memang diam saat sedang dibuka) →
-  pasangan mengirim. Yang terbukti sampai di bar notifikasi:
-  `Rama mengirim semangat` (dengan tombol balas), `Kesepakatan menunggu
-  persetujuanmu` (`requireInteraction`, membuka tab Sanksi), `Cerita baru dari Rama`
-  (senyap), `Rama sudah check-in` (senyap). Aksi **Balas pelukan** terbukti menulis
-  reaksi balasan ke server: `❤️ / Balik peluk!` dari perangkat penerima.
-- `npm run lint` (tsconfig aplikasi + tsconfig worker) bersih.
-
-Catatan jujur: emulator memakai aturan longgar khusus untuk uji ini; aturan privasi
-ruang tetap diuji terpisah terhadap `firestore.rules` asli (52 pemeriksaan v1.1.2).
-
-## Fase 2 belum jalan
-
-Notifikasi di versi ini dikirim dari perangkat itu sendiri. Supaya kabar pasangan
-masuk walau HP-nya tidak sedang membuka aplikasi, perlu Cloud Functions + Web Push,
-dan itu butuh proyek Firebase di-ubah ke paket **Blaze** (ada batas gratis bulanan,
-tapi tagihan nol selama di dalam kuota). Project `growtogether-rafiabdillah` masih
-di paket Spark, jadi kode `push` di worker sudah siap dan tinggal dipasang nanti.
+- XP masih punya dua peran sekaligus (poin level dan uang toko). Aman sekarang,
+  tapi suatu saat sebaiknya dipisah.
+- Kartu joker bulanan, tujuan mingguan, dan pemicu sanksi masih hanya bisa dibaca
+  dari angka mentah — belum ada ringkasannya di layar.
+- Notifikasi nyata antar-perangkat saat aplikasi tertutup (Fase 2) masih menunggu
+  proyek Firebase dipindah ke paket Blaze; yang sekarang jalan pengingat lokal.
 
 ## Yang perlu kamu lakukan
 
-1. Tutup aplikasi di kedua HP, buka lagi supaya versi baru terpasang. Kalau lewat
-   aplikasi yang dipasang, hapus data situs GrowTogether di setelan browser lebih dulu.
-2. Buka Pengaturan → **Notifikasi** → pastikan statusnya "Izin sudah diberikan".
-   Kalau pernah menolak, izinkan lewat Setelan situs Chrome.
-3. Pasang sebagai aplikasi (Menu ⋮ → **Pasang aplikasi**) supaya pengingat tetap
-   jalan saat aplikasi tertutup.
-4. Kirim satu pelukan dari satu HP dan lihat bar notifikasi di HP lainnya.
+1. Buka aplikasi di kedua HP, tutup total, lalu buka lagi supaya build baru
+   terpasang. Kalau salah satu HP masih terbuka, baris **Versi baru** akan muncul
+   di HP itu — tekan **Muat ulang**.
+2. Buka Pengaturan → **Sinkronisasi** dan pastikan keduanya menulis
+   **Versi aplikasi: v1.2.2**.
+3. Kalau kemarin kamu membatalkan habit sampai toko menampilkan angka minus,
+   hari ini tokonya akan menampilkan (0 XP) — itu normal, bukan bug baru.
+
+Berkas: `GrowTogether-1.2.2-web.zip` dan `SHA256SUMS-v1.2.2.txt`
