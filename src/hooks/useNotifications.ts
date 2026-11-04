@@ -52,6 +52,7 @@ export interface GrowNotifications {
   requestPermission: () => Promise<PermissionState>;
   notify: (n: GrowNotification, options?: NotifyOptions) => Promise<DeliveryResult>;
   notifyTest: () => Promise<DeliveryResult>;
+  lastReminder: { kind: NotificationKind; result: DeliveryResult; at: number } | null;
 }
 
 const STREAK_KEY = 'gt_last_streak_';
@@ -143,11 +144,24 @@ export function useGrowNotifications(input: NotificationInput): GrowNotification
     void askPermission().then(setPermission);
   }, [ready, supported]);
 
+  // Pengingat yang gagal muncul tidak pernah kelihatan: pasangan mengira
+  // aplikasinya lupa mengingatkan, padahal browser yang menolak tampilkan.
+  const [lastReminder, setLastReminder] = useState<{
+    kind: NotificationKind;
+    result: DeliveryResult;
+    at: number;
+  } | null>(null);
+
   const notify = useCallback(
     async (n: GrowNotification, options?: NotifyOptions): Promise<DeliveryResult> => {
-      if (options?.skipWhenVisible && document.visibilityState === 'visible') return 'off';
-      if (options?.onceKey && !markShownOnce(options.onceKey)) return 'duplicate';
-      return showGrowNotification(n);
+      let result: DeliveryResult;
+      if (options?.skipWhenVisible && document.visibilityState === 'visible') result = 'off';
+      else if (options?.onceKey && !markShownOnce(options.onceKey)) result = 'duplicate';
+      else result = await showGrowNotification(n);
+      if (n.tag !== 'gt-test') {
+        setLastReminder({ kind: n.kind, result, at: Date.now() });
+      }
+      return result;
     },
     []
   );
@@ -398,5 +412,6 @@ export function useGrowNotifications(input: NotificationInput): GrowNotification
     requestPermission,
     notify,
     notifyTest,
+    lastReminder,
   };
 }

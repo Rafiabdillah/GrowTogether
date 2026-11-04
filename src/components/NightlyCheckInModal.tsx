@@ -25,24 +25,37 @@ export const NightlyCheckInModal: React.FC<NightlyCheckInModalProps> = ({ onClos
   const [gratitude, setGratitude] = useState<string>(existingTodayCheckIn?.gratitude ?? '');
   const [isShared, setIsShared] = useState<boolean>(existingTodayCheckIn?.isShared ?? true);
   const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const dialogRef = useDialog<HTMLDivElement>(true, onClose);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!gratitude.trim()) return;
+    setFormError(null);
+    if (!gratitude.trim()) {
+      setFormError('Tuliskan satu hal yang kamu syukuri hari ini — kolom ini wajib diisi.');
+      return;
+    }
+    // Satu check-in per hari: dua ketukan harus jadi satu tulisan, bukan dua +25 XP.
+    if (isSaving) return;
 
-    await recordCheckIn({
-      coupleId: couple.id,
-      userId: currentUser.id,
-      userName: currentUser.displayName,
-      date: todayStr,
-      mood,
-      gratitude: gratitude.trim(),
-      isShared,
-    });
+    setIsSaving(true);
+    try {
+      await recordCheckIn({
+        coupleId: couple.id,
+        userId: currentUser.id,
+        userName: currentUser.displayName,
+        date: todayStr,
+        mood,
+        gratitude: gratitude.trim(),
+        isShared,
+      });
 
-    setIsSubmitted(true);
-    setTimeout(() => onClose(), 1400);
+      setIsSubmitted(true);
+      setTimeout(() => onClose(), 1400);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const moodLabels = [
@@ -76,6 +89,7 @@ export const NightlyCheckInModal: React.FC<NightlyCheckInModalProps> = ({ onClos
           </div>
           <button type="button"
             onClick={onClose}
+            aria-label="Tutup check-in malam"
             className="min-h-[44px] min-w-[44px] flex items-center justify-center p-1 rounded-lg text-stone-500 hover:text-stone-700 dark:hover:text-stone-200"
           >
             <X className="w-4 h-4" />
@@ -98,7 +112,7 @@ export const NightlyCheckInModal: React.FC<NightlyCheckInModalProps> = ({ onClos
         )}
 
         {isSubmitted ? (
-          <div className="p-8 text-center space-y-2">
+          <div role="status" className="p-8 text-center space-y-2">
             <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto" />
             <h4 className="text-sm font-bold text-stone-900 dark:text-stone-100">
               {existingTodayCheckIn ? 'Check-in Malam Diperbarui!' : 'Check-in Malam Tersimpan!'}
@@ -110,23 +124,25 @@ export const NightlyCheckInModal: React.FC<NightlyCheckInModalProps> = ({ onClos
         ) : (
           <form onSubmit={handleSubmit} className="mt-4 space-y-5">
             {/* 1. Mood Picker */}
-            <div>
-              <label className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-2">
+            <div role="group" aria-labelledby="checkin-mood-label">
+              <span id="checkin-mood-label" className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-2">
                 1. Bagaimana perasaan hatimu secara umum hari ini?
-              </label>
+              </span>
               <div className="grid grid-cols-5 gap-2">
                 {moodLabels.map((m) => (
                   <button
                     key={m.score}
                     type="button"
+                    aria-pressed={mood === m.score}
+                    aria-label={`Mood ${m.score} dari 5: ${m.label}`}
                     onClick={() => setMood(m.score)}
-                    className={`py-2 px-1 rounded-2xl border flex flex-col items-center justify-center transition-all ${
+                    className={`py-2 px-1 min-h-[44px] rounded-2xl border flex flex-col items-center justify-center transition-all ${
                       mood === m.score
                         ? 'bg-amber-500/15 border-amber-400 text-stone-900 dark:text-stone-100 shadow-xs scale-105'
                         : 'border-stone-200 dark:border-stone-800 hover:bg-stone-50 dark:hover:bg-stone-800/60 text-stone-500'
                     }`}
                   >
-                    <span className="text-xl">{m.emoji}</span>
+                    <span className="text-xl" aria-hidden="true">{m.emoji}</span>
                     <span className="text-[11px] font-medium mt-1 text-center truncate w-full">
                       {m.label}
                     </span>
@@ -137,18 +153,31 @@ export const NightlyCheckInModal: React.FC<NightlyCheckInModalProps> = ({ onClos
 
             {/* 2. Gratitude text */}
             <div>
-              <label className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
-                2. Satu hal berkesan yang kamu syukuri hari ini:
+              <label htmlFor="checkin-gratitude" className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
+                2. Satu hal berkesan yang kamu syukuri hari ini:{' '}
+                <span className="text-rose-500" aria-hidden="true">*</span>
+                <span className="sr-only">wajib diisi</span>
               </label>
               <textarea
+                id="checkin-gratitude"
                 rows={3}
                 required
+                aria-required="true"
+                aria-invalid={formError ? 'true' : undefined}
                 maxLength={200}
                 placeholder="Misal: Ditemani teh hangat saat lelah bekerja, atau obrolan santai di meja makan..."
                 value={gratitude}
-                onChange={(e) => setGratitude(e.target.value)}
+                onChange={(e) => {
+                  setGratitude(e.target.value);
+                  if (formError) setFormError(null);
+                }}
                 className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-transparent text-xs focus:ring-2 focus:ring-amber-500"
               />
+              {formError && (
+                <p role="alert" className="mt-1 text-[11px] font-medium text-rose-600 dark:text-rose-400">
+                  {formError}
+                </p>
+              )}
               <span className="text-[11px] text-stone-500 block text-right">
                 {gratitude.length}/200 karakter
               </span>
@@ -172,15 +201,20 @@ export const NightlyCheckInModal: React.FC<NightlyCheckInModalProps> = ({ onClos
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 rounded-xl text-xs font-medium text-stone-500"
+                className="min-h-[44px] px-4 rounded-xl text-xs font-medium text-stone-500 hover:bg-stone-100 dark:hover:bg-stone-800"
               >
                 Tutup
               </button>
               <button
                 type="submit"
-                className="px-5 py-2 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-medium hover:opacity-90"
+                disabled={isSaving}
+                className="min-h-[44px] px-5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-medium hover:opacity-90 disabled:opacity-50"
               >
-                {existingTodayCheckIn ? 'Perbarui Refleksi' : 'Simpan Refleksi'}
+                {isSaving
+                  ? 'Menyimpan...'
+                  : existingTodayCheckIn
+                    ? 'Perbarui Refleksi'
+                    : 'Simpan Refleksi'}
               </button>
             </div>
           </form>

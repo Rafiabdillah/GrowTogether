@@ -93,17 +93,19 @@ export const WheelOfFortune: React.FC<WheelOfFortuneProps> = ({ agreements, onCl
           </div>
           <button type="button"
             onClick={onClose}
+            aria-label="Tutup roda keberuntungan"
             className="min-h-[44px] min-w-[44px] flex items-center justify-center p-1 rounded-lg text-stone-500 hover:text-stone-700 dark:hover:text-stone-200"
           >
-            <X className="w-4 h-4" />
+            <X className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
 
         {/* Filter Toggle */}
-        <div className="flex items-center gap-1.5 p-1 bg-stone-100 dark:bg-stone-800 rounded-xl my-4 text-xs font-semibold">
+        <div role="group" aria-label="Jenis kesepakatan di roda" className="flex items-center gap-1.5 p-1 bg-stone-100 dark:bg-stone-800 rounded-xl my-4 text-xs font-semibold">
           <button type="button"
             onClick={() => handleFilterChange('hadiah')}
-            className={`px-3 py-1.5 rounded-lg transition-colors ${
+            aria-pressed={filterType === 'hadiah'}
+            className={`px-3 py-1.5 min-h-[44px] rounded-lg transition-colors ${
               filterType === 'hadiah'
                 ? 'bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 shadow-xs'
                 : 'text-stone-500'
@@ -113,7 +115,8 @@ export const WheelOfFortune: React.FC<WheelOfFortuneProps> = ({ agreements, onCl
           </button>
           <button type="button"
             onClick={() => handleFilterChange('sanksi')}
-            className={`px-3 py-1.5 rounded-lg transition-colors ${
+            aria-pressed={filterType === 'sanksi'}
+            className={`px-3 py-1.5 min-h-[44px] rounded-lg transition-colors ${
               filterType === 'sanksi'
                 ? 'bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 shadow-xs'
                 : 'text-stone-500'
@@ -174,7 +177,7 @@ export const WheelOfFortune: React.FC<WheelOfFortuneProps> = ({ agreements, onCl
 
         {/* Selected Result Banner */}
         {selectedResult && (
-          <div className="w-full my-4 p-4 rounded-2xl bg-amber-500/15 border border-amber-300 dark:border-amber-700/60 text-center">
+          <div role="status" className="w-full my-4 p-4 rounded-2xl bg-amber-500/15 border border-amber-300 dark:border-amber-700/60 text-center">
             <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300">
               Hasil Pilihan Keberuntungan:
             </span>
@@ -197,6 +200,13 @@ export const WheelOfFortune: React.FC<WheelOfFortuneProps> = ({ agreements, onCl
           <RotateCw className={`w-4 h-4 ${isSpinning ? 'animate-spin' : ''}`} />
           <span>{isSpinning ? 'Memutar Roda...' : 'Putar Roda Sekarang!'}</span>
         </button>
+
+        {activeItems.length === 0 && (
+          <p className="mt-2 text-[11px] text-stone-500 dark:text-stone-400 text-center">
+            Belum ada {filterType === 'hadiah' ? 'hadiah' : 'sanksi'} aktif. Buat dan setujui
+            kesepakatan dulu di tab Kesepakatan agar roda punya pilihan.
+          </p>
+        )}
       </div>
     </div>
   );

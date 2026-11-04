@@ -20,12 +20,14 @@ import {
   Lock,
   Share2,
   CheckCircle2,
+  Timer,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { NightlyCheckInModal } from '../components/NightlyCheckInModal';
 import { WheelOfFortune } from '../components/WheelOfFortune';
 import { DecorationShopModal } from '../components/DecorationShopModal';
 import { useDialog } from '../hooks/useDialog';
+import { useConfirm } from '../components/ConfirmDialog';
 
 const getIsoWeek = (date: Date) => {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
@@ -56,6 +58,7 @@ export const CoupleView: React.FC = () => {
     pairWithCode,
     partnerUid,
     roomCode,
+    cloudIdentity,
   } = useApp();
 
   const [activeSubTab, setActiveSubTab] = useState<'rituals' | 'books' | 'journal' | 'challenge' | 'pairing'>('rituals');
@@ -63,6 +66,11 @@ export const CoupleView: React.FC = () => {
   const [copyError, setCopyError] = useState(false);
   const [inputCode, setInputCode] = useState('');
   const [pairSuccess, setPairSuccess] = useState(false);
+  const [pairError, setPairError] = useState('');
+  const [isPairing, setIsPairing] = useState(false);
+  const [isSavingBook, setIsSavingBook] = useState(false);
+  const [isSavingJournal, setIsSavingJournal] = useState(false);
+  const { confirm, confirmDialog } = useConfirm();
 
   // Ritual Modals
   const [isCheckInModalOpen, setIsCheckInModalOpen] = useState(false);
@@ -127,74 +135,99 @@ export const CoupleView: React.FC = () => {
 
   const handlePairSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputCode.trim()) return;
-    const ok = await pairWithCode(inputCode.trim());
-    if (ok) {
-      setPairSuccess(true);
-      setInputCode('');
-      setTimeout(() => setPairSuccess(false), 3000);
+    if (!inputCode.trim()) {
+      setPairError('Masukkan kode ruang pasanganmu dulu.');
+      return;
+    }
+    if (isPairing) return;
+    setIsPairing(true);
+    setPairError('');
+    try {
+      const result = await pairWithCode(inputCode.trim());
+      if (result.ok) {
+        setPairSuccess(true);
+        setInputCode('');
+        setTimeout(() => setPairSuccess(false), 3000);
+      } else {
+        setPairError(result.reason || 'Gagal bergabung. Periksa ulang kodenya dengan pasangan.');
+      }
+    } finally {
+      setIsPairing(false);
     }
   };
 
   const handleCreateBook = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!bookTitle.trim()) return;
+    if (isSavingBook) return;
+    setIsSavingBook(true);
+    try {
+      if (editingBookId) {
+        await updateBook(editingBookId, {
+          title: bookTitle.trim(),
+          author: bookAuthor.trim() || 'Penulis',
+          status: bookStatus,
+          rating: bookRating,
+          favoriteQuote: bookQuote.trim() || undefined,
+        });
+      } else {
+        await addBook({
+          coupleId: couple.id,
+          title: bookTitle.trim(),
+          author: bookAuthor.trim() || 'Penulis',
+          status: bookStatus,
+          rating: bookRating,
+          favoriteQuote: bookQuote.trim() || undefined,
+          addedBy: currentUser.displayName,
+        });
+      }
 
-    if (editingBookId) {
-      await updateBook(editingBookId, {
-        title: bookTitle.trim(),
-        author: bookAuthor.trim() || 'Penulis',
-        status: bookStatus,
-        rating: bookRating,
-        favoriteQuote: bookQuote.trim() || undefined,
-      });
-    } else {
-      await addBook({
-        coupleId: couple.id,
-        title: bookTitle.trim(),
-        author: bookAuthor.trim() || 'Penulis',
-        status: bookStatus,
-        rating: bookRating,
-        favoriteQuote: bookQuote.trim() || undefined,
-        addedBy: currentUser.displayName,
-      });
+      setBookTitle('');
+      setBookAuthor('');
+      setBookQuote('');
+      setEditingBookId(null);
+      setIsBookModalOpen(false);
+    } finally {
+      setIsSavingBook(false);
     }
-
-    setBookTitle('');
-    setBookAuthor('');
-    setBookQuote('');
-    setEditingBookId(null);
-    setIsBookModalOpen(false);
   };
 
-  const handleDeleteBook = async (id: string) => {
-    if (window.confirm('Hapus buku ini dari rak bacaan kalian?')) {
-      await deleteBook(id);
-    }
+  const handleDeleteBook = async (id: string, title: string) => {
+    const ok = await confirm({
+      title: 'Hapus buku ini?',
+      message: `"${title}" akan hilang dari rak bacaan kalian berdua, di kedua perangkat.`,
+      confirmLabel: 'Hapus',
+    });
+    if (ok) await deleteBook(id);
   };
 
   const handleCreateJournal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!whatWorked.trim()) return;
+    if (isSavingJournal) return;
+    setIsSavingJournal(true);
+    try {
+      const { weekNumber, year } = getIsoWeek(new Date());
+      await addJournal({
+        coupleId: couple.id,
+        authorId: currentUser.id,
+        authorName: currentUser.displayName,
+        weekNumber,
+        year,
+        whatWorked: whatWorked.trim(),
+        whatWasHard: whatWasHard.trim(),
+        nextWeekGoal: nextWeekGoal.trim(),
+        isShared: journalIsShared,
+      });
 
-    const { weekNumber, year } = getIsoWeek(new Date());
-    await addJournal({
-      coupleId: couple.id,
-      authorId: currentUser.id,
-      authorName: currentUser.displayName,
-      weekNumber,
-      year,
-      whatWorked: whatWorked.trim(),
-      whatWasHard: whatWasHard.trim(),
-      nextWeekGoal: nextWeekGoal.trim(),
-      isShared: journalIsShared,
-    });
-
-    setWhatWorked('');
-    setWhatWasHard('');
-    setNextWeekGoal('');
-    setJournalIsShared(true);
-    setIsJournalModalOpen(false);
+      setWhatWorked('');
+      setWhatWasHard('');
+      setNextWeekGoal('');
+      setJournalIsShared(true);
+      setIsJournalModalOpen(false);
+    } finally {
+      setIsSavingJournal(false);
+    }
   };
 
   // Weekly reading challenge, measured from real saved reading sessions in the
@@ -217,6 +250,14 @@ export const CoupleView: React.FC = () => {
   );
   const challengePercent =
     challengeTarget > 0 ? Math.min(100, Math.round((challengeCurrent / challengeTarget) * 100)) : 0;
+
+  // Catatan sesi fokus adalah satu-satunya tempat pasangan menulis apa yang baru
+  // dipelajarinya. Sesi dari habit privat tetap tidak pernah muncul di sini.
+  const sharedFocusNotes = sessions
+    .filter((s) => s.visibility !== 'private')
+    .filter((s) => s.userId === cloudIdentity.userId || s.userId === partnerUid)
+    .sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1))
+    .slice(0, 12);
 
   return (
     <div className="space-y-6">
@@ -475,6 +516,72 @@ export const CoupleView: React.FC = () => {
               </div>
             )}
           </div>
+
+          <div className="p-5 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800">
+            <div className="flex items-center gap-2">
+              <div className="w-9 h-9 rounded-2xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                <Timer className="w-4.5 h-4.5" aria-hidden="true" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-stone-900 dark:text-stone-100">
+                  Catatan Sesi Fokus Berdua
+                </h4>
+                <p className="text-[11px] text-stone-500 dark:text-stone-400">
+                  Apa yang kalian pelajari saat fokus. Sesi dari kebiasaan privat tidak tampil di sini.
+                </p>
+              </div>
+            </div>
+
+            {sharedFocusNotes.length === 0 ? (
+              <p className="mt-4 text-xs text-stone-500 dark:text-stone-400 p-4 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-dashed border-stone-200 dark:border-stone-800">
+                Belum ada catatan. Jalankan timer fokus lalu isi judul dan "apa yang kamu dapatkan" —
+                pasanganmu akan membacanya di sini.
+              </p>
+            ) : (
+              <ul className="mt-4 space-y-2.5">
+                {sharedFocusNotes.map((s) => {
+                  const isMine = s.userId === cloudIdentity.userId;
+                  const minutes = Math.max(1, Math.round(s.durationSeconds / 60));
+                  const who = isMine
+                    ? 'Kamu'
+                    : partnerUser?.displayName.split(' ')[0] || 'Pasangan';
+                  return (
+                    <li
+                      key={s.id}
+                      className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-100 dark:border-stone-800"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span
+                          className={`text-[11px] font-bold ${
+                            isMine
+                              ? 'text-rose-600 dark:text-rose-400'
+                              : 'text-emerald-600 dark:text-emerald-400'
+                          }`}
+                        >
+                          {who}
+                        </span>
+                        <span className="text-[11px] text-stone-500 tabular-nums">
+                          {new Date(s.timestamp).toLocaleDateString('id-ID', {
+                            day: 'numeric',
+                            month: 'short',
+                          })}{' '}
+                          · {minutes} mnt
+                        </span>
+                      </div>
+                      <p className="text-xs font-semibold text-stone-800 dark:text-stone-100 mt-1">
+                        {s.title}
+                      </p>
+                      {s.keyTakeaway && (
+                        <p className="text-xs text-stone-600 dark:text-stone-300 mt-1 italic leading-relaxed">
+                          "{s.keyTakeaway}"
+                        </p>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
         </div>
       )}
 
@@ -564,15 +671,15 @@ export const CoupleView: React.FC = () => {
                         type="button"
                         onClick={() => openBookModal(book)}
                         aria-label={`Edit buku ${book.title}`}
-                        className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 hover:text-stone-800 dark:hover:text-stone-200"
+                        className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 hover:text-stone-800 dark:hover:text-stone-200"
                       >
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleDeleteBook(book.id)}
+                        onClick={() => handleDeleteBook(book.id, book.title)}
                         aria-label={`Hapus buku ${book.title}`}
-                        className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 text-stone-500 hover:text-rose-600"
+                        className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 text-stone-500 hover:text-rose-600"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -658,17 +765,23 @@ export const CoupleView: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => updateJournal(j.id, { isShared: !j.isShared })}
-                            className="min-h-[36px] px-2 rounded-lg text-[11px] font-semibold text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800"
+                            className="min-h-[44px] px-2 rounded-lg text-[11px] font-semibold text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800"
                           >
                             {j.isShared ? 'Jadikan privat' : 'Bagikan'}
                           </button>
                           <button
                             type="button"
-                            onClick={() => {
-                              if (window.confirm('Hapus catatan refleksi ini?')) void deleteJournal(j.id);
+                            onClick={async () => {
+                              const ok = await confirm({
+                                title: 'Hapus catatan refleksi ini?',
+                                message:
+                                  'Refleksi yang sudah dibaca pasangan ikut hilang. Tindakan ini tidak bisa dibatalkan.',
+                                confirmLabel: 'Hapus',
+                              });
+                              if (ok) await deleteJournal(j.id);
                             }}
                             aria-label="Hapus refleksi"
-                            className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-stone-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                            className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-stone-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -774,7 +887,8 @@ export const CoupleView: React.FC = () => {
             </div>
             <button type="button"
               onClick={handleCopyCode}
-              className="flex items-center gap-1 px-3 py-2 rounded-xl bg-white dark:bg-stone-700 border border-stone-200 dark:border-stone-600 text-xs font-semibold hover:bg-stone-100 transition-colors"
+              aria-label="Salin kode ruang"
+              className="flex items-center gap-1 px-3 py-2 min-h-[44px] rounded-xl bg-white dark:bg-stone-700 border border-stone-200 dark:border-stone-600 text-xs font-semibold hover:bg-stone-100 transition-colors"
             >
               {copiedCode ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
               <span>{copiedCode ? 'Tersalin!' : 'Salin Kode'}</span>
@@ -800,12 +914,16 @@ export const CoupleView: React.FC = () => {
             </div>
           ) : (
           <form onSubmit={handlePairSubmit} className="space-y-3">
-            <label className="block text-xs font-semibold text-stone-700 dark:text-stone-300">
-              Masukkan Kode dari Pasangan
+            <label htmlFor="couple-pair-code" className="block text-xs font-semibold text-stone-700 dark:text-stone-300">
+              Masukkan Kode dari Pasangan <span className="text-rose-500" aria-hidden="true">*</span>
+              <span className="sr-only">wajib diisi</span>
             </label>
             <div className="flex gap-2">
               <input
+                id="couple-pair-code"
                 type="text"
+                required
+                aria-required="true"
                 maxLength={6}
                 placeholder="Misal: GROW88"
                 value={inputCode}
@@ -814,14 +932,20 @@ export const CoupleView: React.FC = () => {
               />
               <button
                 type="submit"
-                className="px-5 py-2.5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-semibold hover:opacity-90"
+                disabled={isPairing || !inputCode.trim()}
+                className="px-5 py-2.5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-semibold hover:opacity-90 disabled:opacity-50"
               >
-                Hubungkan
+                {isPairing ? 'Menghubungkan...' : 'Hubungkan'}
               </button>
             </div>
             {pairSuccess && (
-              <p className="text-xs text-emerald-600 font-medium">
+              <p role="status" className="text-xs text-emerald-600 font-medium">
                 ✓ Berhasil terhubung dengan pasangan! Data tersinkron otomatis.
+              </p>
+            )}
+            {pairError && (
+              <p role="alert" className="text-xs text-rose-600 dark:text-rose-400 leading-relaxed">
+                {pairError}
               </p>
             )}
           </form>
@@ -840,11 +964,14 @@ export const CoupleView: React.FC = () => {
             <form onSubmit={handleCreateBook} className="mt-4 space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
-                  Judul Buku
+                  Judul Buku <span className="text-rose-500" aria-hidden="true">*</span>
+                  <span className="sr-only">wajib diisi</span>
                 </label>
                 <input
+                  id="book-title"
                   type="text"
                   required
+                  aria-required="true"
                   placeholder="Misal: Atomic Habits"
                   value={bookTitle}
                   onChange={(e) => setBookTitle(e.target.value)}
@@ -853,10 +980,11 @@ export const CoupleView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
+                <label htmlFor="book-author" className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
                   Penulis
                 </label>
                 <input
+                  id="book-author"
                   type="text"
                   placeholder="Misal: James Clear"
                   value={bookAuthor}
@@ -867,10 +995,11 @@ export const CoupleView: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
+                  <label htmlFor="book-status" className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
                     Status
                   </label>
                   <select
+                    id="book-status"
                     value={bookStatus}
                     onChange={(e) => setBookStatus(e.target.value as 'reading' | 'completed' | 'wishlist')}
                     className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs focus:ring-2 focus:ring-amber-500"
@@ -882,10 +1011,11 @@ export const CoupleView: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
+                  <label htmlFor="book-rating" className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
                     Rating Bintang
                   </label>
                   <select
+                    id="book-rating"
                     value={bookRating}
                     onChange={(e) => setBookRating(Number(e.target.value))}
                     className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs focus:ring-2 focus:ring-amber-500"
@@ -898,10 +1028,11 @@ export const CoupleView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
+                <label htmlFor="book-quote" className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
                   Kutipan / Kalimat Favorit
                 </label>
                 <textarea
+                  id="book-quote"
                   rows={3}
                   placeholder="Tuliskan kutipan yang paling membekas..."
                   value={bookQuote}
@@ -920,9 +1051,14 @@ export const CoupleView: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-medium"
+                  disabled={isSavingBook || !bookTitle.trim()}
+                  className="px-5 py-2 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-medium disabled:opacity-50"
                 >
-                  {editingBookId ? 'Simpan Perubahan' : 'Simpan Buku'}
+                  {isSavingBook
+                    ? 'Menyimpan...'
+                    : editingBookId
+                      ? 'Simpan Perubahan'
+                      : 'Simpan Buku'}
                 </button>
               </div>
             </form>
@@ -943,12 +1079,16 @@ export const CoupleView: React.FC = () => {
 
             <form onSubmit={handleCreateJournal} className="mt-4 space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
-                  1. Apa hal positif atau kebiasaan yang berhasil kita jalani minggu ini?
+                <label htmlFor="journal-worked" className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
+                  1. Apa hal positif atau kebiasaan yang berhasil kita jalani minggu ini?{' '}
+                  <span className="text-rose-500" aria-hidden="true">*</span>
+                  <span className="sr-only">wajib diisi</span>
                 </label>
                 <textarea
+                  id="journal-worked"
                   rows={2}
                   required
+                  aria-required="true"
                   placeholder="Misal: Sukses baca buku bareng tiap malam..."
                   value={whatWorked}
                   onChange={(e) => setWhatWorked(e.target.value)}
@@ -957,12 +1097,16 @@ export const CoupleView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
-                  2. Apa tantangan atau hal sulit yang sempat menghambat?
+                <label htmlFor="journal-hard" className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
+                  2. Apa tantangan atau hal sulit yang sempat menghambat?{' '}
+                  <span className="text-rose-500" aria-hidden="true">*</span>
+                  <span className="sr-only">wajib diisi</span>
                 </label>
                 <textarea
+                  id="journal-hard"
                   rows={2}
                   required
+                  aria-required="true"
                   placeholder="Misal: Lembur di kantor sehingga kurang tidur..."
                   value={whatWasHard}
                   onChange={(e) => setWhatWasHard(e.target.value)}
@@ -971,12 +1115,16 @@ export const CoupleView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
-                  3. Apa target atau komitmen kecil kita untuk minggu depan?
+                <label htmlFor="journal-goal" className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
+                  3. Apa target atau komitmen kecil kita untuk minggu depan?{' '}
+                  <span className="text-rose-500" aria-hidden="true">*</span>
+                  <span className="sr-only">wajib diisi</span>
                 </label>
                 <textarea
+                  id="journal-goal"
                   rows={2}
                   required
+                  aria-required="true"
                   placeholder="Misal: Selesaikan 1 bab baru dan jalan pagi bareng..."
                   value={nextWeekGoal}
                   onChange={(e) => setNextWeekGoal(e.target.value)}
@@ -1004,9 +1152,10 @@ export const CoupleView: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-medium"
+                  disabled={isSavingJournal || !whatWorked.trim()}
+                  className="px-5 py-2 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-medium disabled:opacity-50"
                 >
-                  Publikasikan Refleksi
+                  {isSavingJournal ? 'Menyimpan...' : 'Publikasikan Refleksi'}
                 </button>
               </div>
             </form>
@@ -1031,6 +1180,8 @@ export const CoupleView: React.FC = () => {
       {isDecorationModalOpen && (
         <DecorationShopModal onClose={() => setIsDecorationModalOpen(false)} />
       )}
+
+      {confirmDialog}
     </div>
   );
 };

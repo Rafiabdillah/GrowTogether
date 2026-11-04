@@ -214,7 +214,14 @@ export const ThreeGarden: React.FC<ThreeGardenProps> = ({
   return (
     <div className="relative w-full h-[400px] md:h-[480px] rounded-3xl overflow-hidden bg-gradient-to-b from-stone-50 via-stone-100 to-amber-50/30 dark:from-stone-900 dark:via-stone-900/90 dark:to-stone-950 border border-stone-200/80 dark:border-stone-800">
       {/* Three.js canvas mount */}
-      <div ref={mountRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
+      <div
+        ref={mountRef}
+        role="img"
+        aria-label={`Taman pertumbuhan kalian: streak ${streakCount} hari, ${
+          completedTodayCount + partnerCompletedTodayCount
+        } kebiasaan tuntas hari ini`}
+        className="w-full h-full cursor-grab active:cursor-grabbing"
+      />
 
       {/* Top Left Status Badge */}
       <div className="absolute top-4 left-4 z-10 flex flex-col gap-1 pointer-events-none">
@@ -233,13 +240,15 @@ export const ThreeGarden: React.FC<ThreeGardenProps> = ({
       <div className="absolute top-4 right-4 z-10 flex items-center gap-1.5">
         <button type="button"
           onClick={resetCamera}
+          aria-label="Reset sudut kamera taman"
           className="min-h-[44px] min-w-[44px] flex items-center justify-center p-2 rounded-xl bg-white/80 dark:bg-stone-800/80 border border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white shadow-xs transition-colors"
           title="Reset Sudut Kamera"
         >
-          <RotateCcw className="w-4 h-4" />
+          <RotateCcw className="w-4 h-4" aria-hidden="true" />
         </button>
         <button type="button"
           onClick={() => setIsRotating((prev) => !prev)}
+          aria-pressed={isRotating}
           className={`min-h-[44px] px-3 py-1.5 rounded-xl text-xs font-medium border shadow-xs transition-colors ${
             isRotating
               ? 'bg-amber-500/10 border-amber-300 dark:border-amber-600 text-amber-800 dark:text-amber-200'

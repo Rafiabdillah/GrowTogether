@@ -9,9 +9,13 @@ export const ReactionToast: React.FC = () => {
 
   return (
     <div className="fixed top-20 right-4 z-50 max-w-sm w-[90vw]">
-      <div className="p-4 rounded-2xl bg-white/95 dark:bg-stone-900/95 border border-amber-200 dark:border-amber-900/50 shadow-xl flex items-center justify-between gap-3 text-stone-800 dark:text-stone-100">
+      <div
+        role="status"
+        aria-live="polite"
+        className="p-4 rounded-2xl bg-white/95 dark:bg-stone-900/95 border border-amber-200 dark:border-amber-900/50 shadow-xl flex items-center justify-between gap-3 text-stone-800 dark:text-stone-100"
+      >
         <div className="flex items-center gap-3">
-          <span className="text-3xl shrink-0 animate-bounce">
+          <span className="text-3xl shrink-0 animate-bounce" aria-hidden="true">
             {activeNotification.emoji}
           </span>
           <div>
@@ -29,9 +33,10 @@ export const ReactionToast: React.FC = () => {
 
         <button type="button"
           onClick={dismissNotification}
+          aria-label="Tutup pesan semangat"
           className="min-h-[44px] min-w-[44px] flex items-center justify-center p-1 rounded-lg text-stone-500 hover:text-stone-700 dark:hover:text-stone-200"
         >
-          <X className="w-4 h-4" />
+          <X className="w-4 h-4" aria-hidden="true" />
         </button>
       </div>
     </div>

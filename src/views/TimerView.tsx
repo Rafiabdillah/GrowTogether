@@ -63,6 +63,10 @@ export const TimerView: React.FC<TimerViewProps> = ({
   const [manualTitle, setManualTitle] = useState<string>('');
   const [manualTakeaway, setManualTakeaway] = useState<string>('');
 
+  const [shortSessionHint, setShortSessionHint] = useState<string>('');
+  const [isSavingSession, setIsSavingSession] = useState<boolean>(false);
+  const [isSavingManual, setIsSavingManual] = useState<boolean>(false);
+
   const endAtRef = useRef<number>(0);
   const secondsRemainingRef = useRef<number>(initialMinutes * 60);
   const completeRef = useRef<() => void>(() => {});
@@ -162,8 +166,21 @@ export const TimerView: React.FC<TimerViewProps> = ({
 
   const handleCompleteSession = () => {
     const elapsed = targetDurationMinutes * 60 - secondsRemainingRef.current;
+    const wasActive = isActive;
     setIsActive(false);
-    if (elapsed < 60) return;
+    // Sesi di bawah satu menit tidak dihitung, tapi audio latar harus tetap
+    // berhenti dan pengguna harus tahu mengapa tidak ada yang terjadi.
+    if (elapsed < 60) {
+      ambientAudio.stop();
+      setAmbientMode('off');
+      setShortSessionHint(
+        wasActive
+          ? `Fokus ${Math.round(elapsed)} detik belum dihitung. Sesi minimal 1 menit agar masuk catatan kalian.`
+          : 'Sesi belum dimulai, jadi tidak ada yang dicatat.'
+      );
+      return;
+    }
+    setShortSessionHint('');
 
     ambientAudio.stop();
     setAmbientMode('off');
@@ -183,45 +200,56 @@ export const TimerView: React.FC<TimerViewProps> = ({
 
   const handleSaveSessionLog = async (e: React.FormEvent) => {
     e.preventDefault();
-    await recordFocusSession({
-      coupleId: couple.id,
-      userId: '',
-      habitId: selectedHabitId || undefined,
-      category,
-      durationSeconds: loggedSeconds,
-      title: sessionTitle || (category === 'baca' ? 'Membaca Buku' : 'Sesi Belajar'),
-      lastPage: sessionLastPage ? Number(sessionLastPage) : undefined,
-      keyTakeaway: sessionTakeaway,
-    });
+    if (isSavingSession) return;
+    setIsSavingSession(true);
+    try {
+      await recordFocusSession({
+        coupleId: couple.id,
+        userId: '',
+        habitId: selectedHabitId || undefined,
+        category,
+        durationSeconds: loggedSeconds,
+        title: sessionTitle || (category === 'baca' ? 'Membaca Buku' : 'Sesi Belajar'),
+        lastPage: sessionLastPage ? Number(sessionLastPage) : undefined,
+        keyTakeaway: sessionTakeaway,
+      });
 
-    setIsLogModalOpen(false);
-    setSessionTitle('');
-    setSessionLastPage('');
-    setSessionTakeaway('');
-    setSecondsRemaining(targetDurationMinutes * 60);
+      setIsLogModalOpen(false);
+      setSessionTitle('');
+      setSessionLastPage('');
+      setSessionTakeaway('');
+      setSecondsRemaining(targetDurationMinutes * 60);
+    } finally {
+      setIsSavingSession(false);
+    }
   };
 
   const handleSaveManualLog = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualMinutes || manualMinutes <= 0) return;
+    if (isSavingManual) return;
+    setIsSavingManual(true);
+    try {
+      await recordFocusSession({
+        coupleId: couple.id,
+        userId: '',
+        habitId: selectedHabitId || undefined,
+        category,
+        durationSeconds: manualMinutes * 60,
+        title:
+          manualTitle ||
+          selectedHabit?.title ||
+          (category === 'baca' ? 'Membaca Buku (Manual)' : 'Belajar (Manual)'),
+        keyTakeaway: manualTakeaway,
+      });
 
-    await recordFocusSession({
-      coupleId: couple.id,
-      userId: '',
-      habitId: selectedHabitId || undefined,
-      category,
-      durationSeconds: manualMinutes * 60,
-      title:
-        manualTitle ||
-        selectedHabit?.title ||
-        (category === 'baca' ? 'Membaca Buku (Manual)' : 'Belajar (Manual)'),
-      keyTakeaway: manualTakeaway,
-    });
-
-    setIsManualInput(false);
-    setManualTitle('');
-    setManualTakeaway('');
-    sound.playHabitComplete();
+      setIsManualInput(false);
+      setManualTitle('');
+      setManualTakeaway('');
+      sound.playHabitComplete();
+    } finally {
+      setIsSavingManual(false);
+    }
   };
 
   const mins = Math.floor(secondsRemaining / 60);
@@ -508,6 +536,12 @@ export const TimerView: React.FC<TimerViewProps> = ({
             </button>
           </div>
 
+          {shortSessionHint && (
+            <p role="alert" className="mt-4 px-3 py-2.5 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900 text-[11px] leading-relaxed text-amber-900 dark:text-amber-200">
+              {shortSessionHint}
+            </p>
+          )}
+
           {!isFullscreen && (
             <button
               type="button"
@@ -536,7 +570,8 @@ export const TimerView: React.FC<TimerViewProps> = ({
           <form onSubmit={handleSaveManualLog} className="mt-4 space-y-4">
             <div>
               <label htmlFor="manual-minutes" className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
-                Berapa menit kamu sudah fokus?
+                Berapa menit kamu sudah fokus? <span className="text-rose-500" aria-hidden="true">*</span>
+                <span className="sr-only">wajib diisi</span>
               </label>
               <input
                 id="manual-minutes"
@@ -545,6 +580,7 @@ export const TimerView: React.FC<TimerViewProps> = ({
                 min="1"
                 max="300"
                 required
+                aria-required="true"
                 value={manualMinutes}
                 onChange={(e) => setManualMinutes(Number(e.target.value))}
                 className="w-full min-h-[44px] px-3.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-transparent text-base sm:text-sm font-mono"
@@ -589,9 +625,10 @@ export const TimerView: React.FC<TimerViewProps> = ({
               </button>
               <button
                 type="submit"
-                className="min-h-[44px] px-5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-medium"
+                disabled={isSavingManual || !manualMinutes || manualMinutes < 1}
+                className="min-h-[44px] px-5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-medium disabled:opacity-50"
               >
-                Simpan catatan
+                {isSavingManual ? 'Menyimpan...' : 'Simpan catatan'}
               </button>
             </div>
           </form>
@@ -620,12 +657,14 @@ export const TimerView: React.FC<TimerViewProps> = ({
             <form onSubmit={handleSaveSessionLog} className="mt-4 space-y-4">
               <div>
                 <label htmlFor="session-title" className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
-                  Judul buku / materi pelajaran
+                  Judul buku / materi pelajaran <span className="text-rose-500" aria-hidden="true">*</span>
+                  <span className="sr-only">wajib diisi</span>
                 </label>
                 <input
                   id="session-title"
                   type="text"
                   required
+                  aria-required="true"
                   placeholder="Misal: Atomic Habits atau Dasar Perpajakan"
                   value={sessionTitle}
                   onChange={(e) => setSessionTitle(e.target.value)}
@@ -653,18 +692,25 @@ export const TimerView: React.FC<TimerViewProps> = ({
 
               <div>
                 <label htmlFor="session-takeaway" className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
-                  1 hal yang dipelajari hari ini
+                  1 hal yang dipelajari hari ini <span className="text-rose-500" aria-hidden="true">*</span>
+                  <span className="sr-only">wajib diisi</span>
                 </label>
                 <textarea
                   id="session-takeaway"
                   rows={3}
                   required
+                  aria-required="true"
                   placeholder="Tuliskan 1 hal yang menarik"
                   value={sessionTakeaway}
                   onChange={(e) => setSessionTakeaway(e.target.value)}
                   className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-transparent text-base sm:text-sm"
                 />
               </div>
+
+              <p className="text-[11px] leading-relaxed text-stone-500 dark:text-stone-400">
+                Kolom bertanda <span className="text-rose-500">*</span> wajib diisi. "Buang sesi ini"
+                tidak menyimpan apa pun.
+              </p>
 
               <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2">
                 <button
@@ -679,9 +725,10 @@ export const TimerView: React.FC<TimerViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="min-h-[44px] px-5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-medium"
+                  disabled={isSavingSession || !sessionTitle.trim() || !sessionTakeaway.trim()}
+                  className="min-h-[44px] px-5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-medium disabled:opacity-50"
                 >
-                  Simpan catatan dan tuntaskan habit
+                  {isSavingSession ? 'Menyimpan...' : 'Simpan catatan dan tuntaskan habit'}
                 </button>
               </div>
             </form>

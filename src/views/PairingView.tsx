@@ -47,13 +47,16 @@ export const PairingView: React.FC = () => {
       setError('Isi nama kamu dulu supaya pasangan mengenali kamu di ruang ini.');
       return;
     }
-    if (!inviteCode.trim()) return;
+    if (!inviteCode.trim()) {
+      setError('Masukkan kode ruang pasanganmu dulu.');
+      return;
+    }
     try {
       setIsLoading(true);
       setError('');
-      const success = await joinCouple(inviteCode.trim().toUpperCase(), name.trim());
-      if (!success) {
-        setError('Kode tidak dikenali atau ruangnya sudah penuh. Periksa ulang kodenya dengan pasangan.');
+      const result = await joinCouple(inviteCode.trim().toUpperCase(), name.trim());
+      if (!result.ok) {
+        setError(result.reason || 'Gagal bergabung. Periksa ulang kodenya dengan pasangan.');
       }
     } catch (err: any) {
       setError(err.message || 'Gagal bergabung dengan pasangan');
@@ -132,7 +135,8 @@ export const PairingView: React.FC = () => {
         <div className="bg-white dark:bg-stone-900 rounded-3xl p-6 shadow-xl border border-stone-200 dark:border-stone-800 space-y-5">
           <label htmlFor="room-display-name" className="block">
             <span className="text-sm font-semibold text-stone-900 dark:text-stone-100">
-              Nama kamu
+              Nama kamu <span className="text-rose-500" aria-hidden="true">*</span>
+              <span className="sr-only">wajib diisi</span>
             </span>
             <input
               id="room-display-name"
@@ -141,6 +145,9 @@ export const PairingView: React.FC = () => {
               onChange={(e) => setName(e.target.value)}
               maxLength={40}
               autoComplete="given-name"
+              required
+              aria-required="true"
+              aria-invalid={error && !name.trim() ? 'true' : undefined}
               placeholder="misal: Rafi"
               className="mt-1 w-full min-h-[48px] px-4 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100"
             />
@@ -159,15 +166,18 @@ export const PairingView: React.FC = () => {
                 {roomCode || 'MEMBUAT...'}
               </code>
               <button
+                type="button"
                 onClick={copyInviteCode}
+                disabled={!roomCode}
                 aria-label="Salin kode ruang"
-                className="p-2 hover:bg-stone-200 dark:hover:bg-stone-700 rounded-lg transition-colors"
+                className="p-2 hover:bg-stone-200 dark:hover:bg-stone-700 rounded-lg transition-colors disabled:opacity-40"
               >
                 {copied ? <Check className="w-5 h-5 text-green-600" /> : <Copy className="w-5 h-5 text-stone-600 dark:text-stone-400" />}
               </button>
             </div>
 
             <button
+              type="button"
               onClick={handleCreateCouple}
               disabled={isLoading}
               className="w-full min-h-[48px] px-6 rounded-xl bg-gradient-to-r from-amber-500 to-rose-500 text-white font-semibold hover:from-amber-600 hover:to-rose-600 transition-colors disabled:opacity-50"
@@ -188,7 +198,8 @@ export const PairingView: React.FC = () => {
             <label htmlFor="partner-room-code" className="block">
               <span className="flex items-center gap-2 text-sm font-semibold text-stone-900 dark:text-stone-100">
                 <UserPlus className="w-4 h-4 text-rose-700 dark:text-rose-400" aria-hidden="true" />
-                Kode ruang pasangan
+                Kode ruang pasangan <span className="text-rose-500" aria-hidden="true">*</span>
+                <span className="sr-only">wajib diisi</span>
               </span>
               <input
                 id="partner-room-code"
@@ -198,6 +209,8 @@ export const PairingView: React.FC = () => {
                 placeholder="MASUKKAN KODE"
                 maxLength={12}
                 autoComplete="off"
+                required
+                aria-required="true"
                 className="mt-1 w-full min-h-[48px] px-4 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-center text-lg font-mono font-bold tracking-widest text-stone-900 dark:text-stone-100"
               />
             </label>

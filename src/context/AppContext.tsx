@@ -64,9 +64,15 @@ import {
 import {
   emitSyncEvent,
   explainSyncEvent,
+  stashSyncNote,
   subscribeSyncEvents,
+  takeStashedSyncNote,
   type SyncEvent,
 } from '../lib/syncBus';
+
+// Bergabung dengan ruang bisa gagal karena banyak alasan; `reason` wajib tampil
+// di layar, bukan hanya di banner, supaya kode ruang tidak terasa seperti error misterius.
+export type JoinResult = { ok: boolean; reason: string };
 
 interface AppContextType {
   // Auth
@@ -131,7 +137,7 @@ interface AppContextType {
   loadDemoData: () => void;
   setupUserProfile: (user: User) => Promise<void>;
   createCouple: (displayName?: string) => Promise<void>;
-  joinCouple: (inviteCode: string, displayName?: string) => Promise<boolean>;
+  joinCouple: (inviteCode: string, displayName?: string) => Promise<JoinResult>;
 
   // Actions
   toggleHabit: (habitId: string, targetDate?: string) => Promise<void>;
@@ -148,7 +154,7 @@ interface AppContextType {
   deleteJournal: (id: string) => Promise<void>;
   toggleGraceDay: () => Promise<void>;
   switchSimulatedUser: () => void;
-  pairWithCode: (code: string) => Promise<boolean>;
+  pairWithCode: (code: string) => Promise<JoinResult>;
   
   // Rituals & Island Actions
   recordCheckIn: (checkInData: Omit<CheckIn, 'id' | 'createdAt'>) => Promise<void>;
@@ -312,6 +318,19 @@ async function cloudDeleteDoc(reference: FirestoreDocRef) {
   }
 }
 
+
+// Semua aksi aplikasi lebih dulu diterapkan di keadaan lokal (optimistic), lalu
+// ditulis ke server. Menunggu akui server di dalam form mengunci tombol selama
+// ber detik di jaringan lambat — padahal kegagalan apa pun tetap dilaporkan lewat
+// banner sinkronisasi, jadi penulisannya cukup berjalan di latar belakang.
+function syncDocInBackground(reference: FirestoreDocRef, data: object, options?: { merge?: boolean }) {
+  cloudSetDoc(reference, data, options).catch((error) => console.warn('Firestore ' + reference.path + ':', error));
+}
+
+function removeDocInBackground(reference: FirestoreDocRef) {
+  cloudDeleteDoc(reference).catch((error) => console.warn('Firestore hapus ' + reference.path + ':', error));
+}
+
 function loadPersistedState(): Partial<PersistedState> {
   const raw = readStorage(STATE_KEY);
   if (!raw) return {};
@@ -438,10 +457,19 @@ function partnerCheckInNotification(entry: CheckIn): GrowNotification {
   };
 }
 
+// Kartu maaf adalah jatah bulanan. Selama dokumen ruang masih menandai bulan
+// lama, kedua slot dianggap terisi ulang 2 — tanpa perlu tulisan tambahan.
+function jokerMonthKeyOf(date = new Date()): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
 function normalizeCouple(id: string, data: Partial<Couple>): Couple {
   // Un-completing a habit sends increment(-10); a room that was already at zero
   // would otherwise show a negative balance in the shop.
   const levelXp = Math.max(0, data.levelXp ?? 0);
+  const refilledThisMonth = data.jokerMonthKey === jokerMonthKeyOf();
+  const jokers1 = refilledThisMonth ? data.jokerCardsUser1 ?? 2 : 2;
+  const jokers2 = refilledThisMonth ? data.jokerCardsUser2 ?? 2 : 2;
   return {
     ...SEED_COUPLE,
     ...data,
@@ -454,8 +482,9 @@ function normalizeCouple(id: string, data: Partial<Couple>): Couple {
     levelXp,
     // Spending XP never demotes a level, so keep the highest known level.
     levelNumber: Math.max(data.levelNumber ?? 1, Math.floor(levelXp / XP_PER_LEVEL) + 1),
-    jokerCardsUser1: data.jokerCardsUser1 ?? 2,
-    jokerCardsUser2: data.jokerCardsUser2 ?? 2,
+    jokerCardsUser1: jokers1,
+    jokerCardsUser2: jokers2,
+    jokerMonthKey: jokerMonthKeyOf(),
     allSanctionsPaused: data.allSanctionsPaused ?? false,
     graceDayUsedThisWeek: data.graceDayUsedThisWeek ?? false,
     selectedTimeOfDay: data.selectedTimeOfDay ?? 'auto',
@@ -512,8 +541,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const reactionsPrimed = useRef(false);
   const lastNotifiedReactionId = useRef<string | null>(null);
   const [activeNotification, setActiveNotification] = useState<Reaction | null>(null);
-  const [syncEvents, setSyncEvents] = useState<SyncEvent[]>([]);
-  const [syncAlert, setSyncAlert] = useState<SyncEvent | null>(null);
+  const [syncEvents, setSyncEvents] = useState<SyncEvent[]>(() => {
+    const note = takeStashedSyncNote();
+    return note ? [note] : [];
+  });
+  const [syncAlert, setSyncAlert] = useState<SyncEvent | null>(syncEvents[0] ?? null);
   const [lastSentReaction, setLastSentReaction] = useState<
     { emoji: string; at: number; ok: boolean } | null
   >(null);
@@ -647,11 +679,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!uid) return currentUser;
     const me: UserProfile = { ...currentUser, id: uid, displayName: clean };
     setUsersState((prev) => ({ ...prev, [uid]: me }));
-    try {
-      await cloudSetDoc(doc(db, 'users', uid), { displayName: clean }, { merge: true });
-    } catch (error) {
-      console.warn('displayName patch:', error);
-    }
+    syncDocInBackground(doc(db, 'users', uid), { displayName: clean }, { merge: true });
     return me;
   };
 
@@ -725,6 +753,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     const partnerId = room.user1Id === user.uid ? room.user2Id : room.user1Id;
 
+    // Menghapus akun adalah aksi sekali jalan. Bila sebagian baris gagal hilang,
+    // pengguna harus tahu koleksi mana yang masih menyimpan datanya.
+    const wipeFailures: string[] = [];
+    const COLLECTION_LABELS: Record<string, string> = {
+      habits: 'kebiasaan',
+      logs: 'catatan harian',
+      sessions: 'sesi fokus',
+      journals: 'jurnal refleksi',
+      checkins: 'check-in malam',
+      reactions: 'reaksi',
+      books: 'rak buku',
+      agreements: 'kesepakatan',
+    };
+    const markFailed = (name: string, e: unknown) => {
+      wipeFailures.push(name);
+      console.warn(`deleteAccount ${name}:`, e);
+    };
+
     const deleteWhereCouple = async (
       name: string,
       filter: (data: Record<string, unknown>) => boolean
@@ -735,11 +781,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           query(collection(db, name), where('coupleId', '==', coupleId))
         );
         const targets = snap.docs.filter((d) => filter(d.data()));
-        await Promise.all(
-          targets.map((d) => firestoreDeleteDoc(d.ref).catch(() => undefined))
+        const missed = await Promise.all(
+          targets.map((d) => firestoreDeleteDoc(d.ref).then(() => 0, () => 1))
         );
+        if (missed.reduce((a, b) => a + b, 0) > 0) wipeFailures.push(name);
       } catch (e) {
-        console.warn(`deleteAccount ${name}:`, e);
+        markFailed(name, e);
       }
     };
     // Rules only accept a query whose constraints prove every returned row is
@@ -752,11 +799,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const deleteWhereUser = async (name: string, field: string) => {
       try {
         const snap = await getDocs(ownRows(name, field));
-        await Promise.all(
-          snap.docs.map((d) => firestoreDeleteDoc(d.ref).catch(() => undefined))
+        const missed = await Promise.all(
+          snap.docs.map((d) => firestoreDeleteDoc(d.ref).then(() => 0, () => 1))
         );
+        if (missed.reduce((a, b) => a + b, 0) > 0) wipeFailures.push(name);
       } catch (e) {
-        console.warn(`deleteAccount ${name}:`, e);
+        markFailed(name, e);
       }
     };
     // Shared habits belong to the couple, so the partner keeps their routine.
@@ -769,11 +817,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const data = d.data() as Partial<Habit>;
           return !(keepShared && data.isShared === true && data.isPrivate !== true);
         });
-        await Promise.all(
-          targets.map((d) => firestoreDeleteDoc(d.ref).catch(() => undefined))
+        const missed = await Promise.all(
+          targets.map((d) => firestoreDeleteDoc(d.ref).then(() => 0, () => 1))
         );
+        if (missed.reduce((a, b) => a + b, 0) > 0) wipeFailures.push('kebiasaan');
       } catch (e) {
-        console.warn('deleteAccount habits:', e);
+        markFailed('kebiasaan', e);
       }
     };
 
@@ -786,6 +835,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await deleteWhereCouple('reactions', (d) => d.senderId === user.uid);
     await deleteWhereCouple('books', (d) => d.addedById === user.uid);
     await deleteWhereCouple('agreements', (d) => d.creatorId === user.uid);
+
+    // Aturan hanya mengizinkan penghapusan selama akun masih jadi anggota ruang.
+    // Bila sebagian baris gagal hilang, berhenti di sini: menghapus akun sekarang
+    // akan meninggalkan data itu selamanya tanpa pemilik yang bisa membersihkannya.
+    if (wipeFailures.length) {
+      const list = Array.from(new Set(wipeFailures))
+        .map((name) => COLLECTION_LABELS[name] || name)
+        .join(', ');
+      emitSyncEvent({
+        at: Date.now(),
+        kind: 'delete',
+        target: 'hapus data akun',
+        ok: false,
+        message: `sebagian datamu belum terhapus (${list}); akun tidak dihapus`,
+      });
+      throw new Error(
+        'Sebagian datamu belum berhasil terhapus, jadi akun sengaja tidak jadi dihapus. Periksa koneksi lalu ulangi.'
+      );
+    }
 
     // 2. Leave the room: inherit it to the partner, or dissolve it when alone.
     if (coupleId && room.id === coupleId) {
@@ -813,18 +881,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           await firestoreDeleteDoc(doc(db, 'couples', coupleId));
         }
       } catch (e) {
-        console.warn('deleteAccount leave couple:', e);
+        markFailed('ruang bersama', e);
       }
     }
 
     // 3. Remove the invite code and the profile document.
     if (currentUser.inviteCode) {
-      await firestoreDeleteDoc(doc(db, 'inviteCodes', currentUser.inviteCode)).catch(
-        () => undefined
+      await firestoreDeleteDoc(doc(db, 'inviteCodes', currentUser.inviteCode)).catch((e) =>
+        markFailed('kode ruang', e)
       );
     }
     await firestoreDeleteDoc(doc(db, 'users', user.uid)).catch((e) =>
-      console.warn('deleteAccount profile:', e)
+      markFailed('profil', e)
     );
 
     // 4. Finally remove the Firebase Auth account itself.
@@ -846,6 +914,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setAuthError('');
     } catch (error) {
       setAuthError(friendlyAccountError(error));
+    }
+
+    // Sisa kegagalan di langkah 2-3 tidak bisa dibatalkan lagi (akun sudah hilang),
+    // tetapi tetap harus dikabarkan supaya tidak ada jejak data yang tak terjelaskan.
+    if (wipeFailures.length) {
+      emitSyncEvent({
+        at: Date.now(),
+        kind: 'delete',
+        target: 'hapus data akun',
+        ok: false,
+        message: `akun terhapus, tapi sebagian data mungkin masih tersimpan (${Array.from(new Set(wipeFailures)).join(', ')})`,
+      });
+    } else {
+      emitSyncEvent({
+        at: Date.now(),
+        kind: 'delete',
+        target: 'hapus data akun',
+        ok: true,
+        message: 'semua datamu terhapus',
+      });
     }
   };
 
@@ -902,9 +990,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // The pointer must go too, otherwise somebody could join using this code
     // and end up in the partner's room. The profile keeps its code for later.
     if (inviteCode) {
-      await firestoreDeleteDoc(doc(db, 'inviteCodes', inviteCode)).catch((e) =>
-        console.warn('leaveCouple invite code:', e)
-      );
+      try {
+        await firestoreDeleteDoc(doc(db, 'inviteCodes', inviteCode));
+      } catch (e) {
+        console.warn('leaveCouple invite code:', e);
+        emitSyncEvent({
+          at: Date.now(),
+          kind: 'delete',
+          target: 'kode ruang lama',
+          ok: false,
+          message: 'kode lamamu masih aktif di server',
+        });
+        throw new Error(
+          'Kamu sudah keluar dari ruang, tapi kode ruang lamamu gagal dicabut sehingga masih bisa dipakai orang lain masuk. Coba keluar sekali lagi.'
+        );
+      }
     }
 
     await cloudSetDoc(
@@ -1544,7 +1644,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     () =>
       subscribeSyncEvents((event) => {
         setSyncEvents((prev) => [event, ...prev].slice(0, 40));
-        if (!event.ok) setSyncAlert(event);
+        if (!event.ok) {
+          setSyncAlert(event);
+          return;
+        }
+        // A banner that survives the operation that caused it tells the user the
+        // room is broken long after it stopped being true. The next accepted
+        // write retires it; the sync log keeps the failure for diagnostics.
+        setSyncAlert((current) => (current ? null : current));
       }),
     []
   );
@@ -1573,6 +1680,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await clearIndexedDbPersistence(db);
     } catch (error) {
       console.warn('Firestore cache reset:', error);
+      // Reload is still the only way to get a fresh Firestore client, but the
+      // note has to survive the reload or the failure looks like a clean reset.
+      stashSyncNote({
+        at: Date.now(),
+        kind: 'write',
+        target: 'salinan lokal',
+        ok: false,
+        message: `salinan lokal gagal dibersihkan: ${syncErrorText(error)}`,
+      });
     }
     window.location.reload();
   };
@@ -1669,11 +1785,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const patchCoupleRoom = async (updates: Partial<Couple>, label: string) => {
     const coupleId = requireRoom(label);
     if (!coupleId) return;
-    try {
-      await cloudSetDoc(doc(db, 'couples', coupleId), updates, { merge: true });
-    } catch (e) {
-      console.warn(`Firestore ${label}:`, e);
-    }
+    syncDocInBackground(doc(db, 'couples', coupleId), updates, { merge: true });
   };
 
   // Toggle a habit for a given day (defaults to the selected date)
@@ -1726,11 +1838,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       channel.close();
     }
 
-    try {
-      await cloudSetDoc(doc(db, 'logs', logId), updatedLog, { merge: true });
-    } catch (e) {
-      console.warn('Firestore setDoc log:', e);
-    }
+    syncDocInBackground(doc(db, 'logs', logId), updatedLog, { merge: true });
 
     await addCoupleXP(newCompleted ? 10 : -10);
   };
@@ -1757,21 +1865,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       channel.close();
     }
 
-    try {
-      await cloudSetDoc(doc(db, 'habits', id), habitObj);
-    } catch (e) {
-      console.warn('Firestore addHabit error:', e);
-    }
+    syncDocInBackground(doc(db, 'habits', id), habitObj);
   };
 
   // Edit Habit
   const editHabit = async (id: string, updates: Partial<Habit>) => {
     setHabits((prev) => prev.map((h) => (h.id === id ? { ...h, ...updates } : h)));
-    try {
-      await cloudSetDoc(doc(db, 'habits', id), updates, { merge: true });
-    } catch (e) {
-      console.warn('Firestore editHabit:', e);
-    }
+    syncDocInBackground(doc(db, 'habits', id), updates, { merge: true });
   };
 
   // Delete Habit
@@ -1779,12 +1879,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const ownLogs = logs.filter((l) => l.habitId === id && l.userId === currentUser.id);
     setHabits((prev) => prev.filter((h) => h.id !== id));
     setLogs((prev) => prev.filter((l) => !(l.habitId === id && l.userId === currentUser.id)));
-    try {
-      await Promise.all(ownLogs.map((l) => cloudDeleteDoc(doc(db, 'logs', l.id))));
-      await cloudDeleteDoc(doc(db, 'habits', id));
-    } catch (e) {
-      console.warn('Firestore deleteHabit:', e);
-    }
+    ownLogs.forEach((l) => removeDocInBackground(doc(db, 'logs', l.id)));
+    removeDocInBackground(doc(db, 'habits', id));
   };
 
   // Record Focus Session
@@ -1842,18 +1938,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         void addCoupleXP(10);
       }
 
-      try {
-        await cloudSetDoc(doc(db, 'logs', logId), logObj, { merge: true });
-      } catch (e) {
-        console.warn('Firestore auto-log focus session:', e);
-      }
+      syncDocInBackground(doc(db, 'logs', logId), logObj, { merge: true });
     }
 
-    try {
-      await cloudSetDoc(doc(db, 'sessions', sessionId), sessionObj);
-    } catch (e) {
-      console.warn('Firestore session write:', e);
-    }
+    syncDocInBackground(doc(db, 'sessions', sessionId), sessionObj);
   };
 
   // Send "Semangatin" Reaction
@@ -1894,11 +1982,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       channel.close();
     }
 
-    try {
-      await cloudSetDoc(doc(db, 'reactions', reactionId), reactionObj);
-    } catch (e) {
-      console.warn('Firestore sendReaction:', e);
-    }
+    syncDocInBackground(doc(db, 'reactions', reactionId), reactionObj);
   };
 
   // "Balas pelukan" on a notification is answered by the worker handing the job to
@@ -1927,31 +2011,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updatedAt: new Date().toISOString(),
     };
     setBooks((prev) => [bookObj, ...prev]);
-    try {
-      await cloudSetDoc(doc(db, 'books', id), bookObj);
-    } catch (e) {
-      console.warn('Firestore addBook:', e);
-    }
+    syncDocInBackground(doc(db, 'books', id), bookObj);
   };
 
   const updateBook = async (id: string, updates: Partial<Book>) => {
     setBooks((prev) =>
       prev.map((b) => (b.id === id ? { ...b, ...updates, updatedAt: new Date().toISOString() } : b))
     );
-    try {
-      await cloudSetDoc(doc(db, 'books', id), updates, { merge: true });
-    } catch (e) {
-      console.warn('Firestore updateBook:', e);
-    }
+    syncDocInBackground(doc(db, 'books', id), updates, { merge: true });
   };
 
   const deleteBook = async (id: string) => {
     setBooks((prev) => prev.filter((b) => b.id !== id));
-    try {
-      await cloudDeleteDoc(doc(db, 'books', id));
-    } catch (e) {
-      console.warn('Firestore deleteBook:', e);
-    }
+    removeDocInBackground(doc(db, 'books', id));
   };
 
   // Add Journal Reflection
@@ -1968,29 +2040,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createdAt: new Date().toISOString(),
     };
     setJournals((prev) => [entryObj, ...prev]);
-    try {
-      await cloudSetDoc(doc(db, 'journals', id), entryObj);
-    } catch (e) {
-      console.warn('Firestore addJournal:', e);
-    }
+    syncDocInBackground(doc(db, 'journals', id), entryObj);
   };
 
   const updateJournal = async (id: string, updates: Partial<JournalEntry>) => {
     setJournals((prev) => prev.map((j) => (j.id === id ? { ...j, ...updates } : j)));
-    try {
-      await cloudSetDoc(doc(db, 'journals', id), updates, { merge: true });
-    } catch (e) {
-      console.warn('Firestore updateJournal:', e);
-    }
+    syncDocInBackground(doc(db, 'journals', id), updates, { merge: true });
   };
 
   const deleteJournal = async (id: string) => {
     setJournals((prev) => prev.filter((j) => j.id !== id));
-    try {
-      await cloudDeleteDoc(doc(db, 'journals', id));
-    } catch (e) {
-      console.warn('Firestore deleteJournal:', e);
-    }
+    removeDocInBackground(doc(db, 'journals', id));
   };
 
   // Grace Day toggle
@@ -2033,11 +2093,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { ...prev, [id]: { ...existing, ...updates } };
     });
 
-    try {
-      await cloudSetDoc(doc(db, 'users', id), updates, { merge: true });
-    } catch (e) {
-      console.warn('Firestore updateUserProfile:', e);
-    }
+    syncDocInBackground(doc(db, 'users', id), updates, { merge: true });
   };
 
   // Update couple profile
@@ -2181,23 +2237,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Join the partner's room using their invite code
-  const joinCouple = async (rawCode: string, displayName?: string): Promise<boolean> => {
-    if (!authUser) return false;
+  const joinCouple = async (rawCode: string, displayName?: string): Promise<JoinResult> => {
+    // Setiap penolakan harus punya alasan yang bisa dibaca pengguna; kegagalan
+    // tanpa pesan membuat kode ruang kelihatan seperti aplikasi yang rusak.
+    const refuse = (message: string, kind: SyncEvent['kind'] = 'listen'): JoinResult => {
+      emitSyncEvent({ at: Date.now(), kind, target: 'gabung ruang', ok: false, message });
+      return { ok: false, reason: message };
+    };
+    if (!authUser) return refuse('sesi login belum siap, coba muat ulang halaman');
     const me = await ensureDisplayName(displayName);
     const code = rawCode.trim().toUpperCase();
-    if (!code || code === (me.inviteCode || '').toUpperCase()) return false;
+    if (!code) return refuse('kode ruang belum diisi');
+    if (code === (me.inviteCode || '').toUpperCase()) {
+      return refuse('itu kode ruangmu sendiri — mintakan kode pasangan');
+    }
 
     const inviteSnap = await getDoc(doc(db, 'inviteCodes', code));
-    if (!inviteSnap.exists()) {
-      emitSyncEvent({
-        at: Date.now(),
-        kind: 'listen',
-        target: 'gabung ruang',
-        ok: false,
-        message: `kode ${code} tidak dikenali di server`,
-      });
-      return false;
-    }
+    if (!inviteSnap.exists()) return refuse(`kode ${code} tidak dikenali di server`);
 
     const invite = inviteSnap.data() as {
       userId?: string;
@@ -2208,7 +2264,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     const partnerId = invite.userId;
     const targetCoupleId = invite.coupleId;
-    if (!partnerId || !targetCoupleId || partnerId === me.id) return false;
+    if (!partnerId || !targetCoupleId) {
+      return refuse(`kode ${code} belum menunjuk ke ruang yang lengkap; minta pasangan membuka aplikasinya sekali lalu coba lagi`);
+    }
+    if (partnerId === me.id) return refuse('kode ini adalah kode ruangmu sendiri');
 
     // Trust the stored profile over local state: it may be stale on a new device.
     const mySnap = await getDoc(doc(db, 'users', me.id)).catch(() => null);
@@ -2219,7 +2278,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const prevSnap = await getDoc(doc(db, 'couples', previousCoupleId)).catch(() => null);
       const prev = prevSnap?.data() as Partial<Couple> | undefined;
       // Already in a room with someone else: refuse to silently abandon it.
-      if (prev?.user2Id && prev.user2Id !== me.id) return false;
+      if (prev?.user2Id && prev.user2Id !== me.id) {
+        return refuse(
+          'kamu masih tercatat di ruang bersama orang lain; keluar dari ruang itu dulu sebelum pindah',
+          'write'
+        );
+      }
     }
 
     const partner: UserProfile = usersState[partnerId] ?? {
@@ -2234,20 +2298,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const coupleRef = doc(db, 'couples', targetCoupleId);
     const coupleSnap = await getDoc(coupleRef);
-    if (!coupleSnap.exists()) return false;
+    if (!coupleSnap.exists()) {
+      return refuse(`ruang untuk kode ${code} sudah tidak ada di server — minta pasangan membuat ulang kodenya`);
+    }
 
     const existing = normalizeCouple(coupleSnap.id, coupleSnap.data() as Partial<Couple>);
     if (existing.user2Id && existing.user2Id !== me.id) {
       // Two seats are already taken. Entering is only possible after a slot is
       // freed, and the reason has to reach the user instead of a blank failure.
-      emitSyncEvent({
-        at: Date.now(),
-        kind: 'write',
-        target: 'gabung ruang',
-        ok: false,
-        message: 'ruang ini sudah berisi dua orang; minta pasangan keluar dari ruang dulu bila kamu pindah HP',
-      });
-      return false;
+      return refuse(
+        'ruang ini sudah berisi dua orang; minta pasangan keluar dari ruang dulu bila kamu pindah HP',
+        'write'
+      );
     }
 
     const now = new Date().toISOString();
@@ -2290,11 +2352,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }));
     clearLocalCollections();
     sound.playHighFive();
-    return true;
+    return { ok: true, reason: '' };
   };
 
   // Kept for the older UI entry points (settings, onboarding, couple tab)
-  const pairWithCode = async (code: string): Promise<boolean> => joinCouple(code);
+  const pairWithCode = async (code: string): Promise<JoinResult> => joinCouple(code);
 
   // Create Agreement
   const createAgreement = async (agreementData: Omit<Agreement, 'id' | 'createdAt' | 'updatedAt'>) => {
@@ -2314,11 +2376,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updatedAt: new Date().toISOString(),
     };
     setAgreements((prev) => [agreementObj, ...prev]);
-    try {
-      await cloudSetDoc(doc(db, 'agreements', id), agreementObj);
-    } catch (e) {
-      console.warn('Firestore createAgreement:', e);
-    }
+    syncDocInBackground(doc(db, 'agreements', id), agreementObj);
   };
 
   // Approve Agreement
@@ -2326,11 +2384,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAgreements((prev) =>
       prev.map((a) => (a.id === id ? { ...a, status: 'active', partnerApproved: true } : a))
     );
-    try {
-      await cloudSetDoc(doc(db, 'agreements', id), { status: 'active', partnerApproved: true }, { merge: true });
-    } catch (e) {
-      console.warn('Firestore approveAgreement:', e);
-    }
+    syncDocInBackground(doc(db, 'agreements', id), { status: 'active', partnerApproved: true }, { merge: true });
   };
 
   // Reject Agreement
@@ -2338,11 +2392,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAgreements((prev) =>
       prev.map((a) => (a.id === id ? { ...a, status: 'rejected' } : a))
     );
-    try {
-      await cloudSetDoc(doc(db, 'agreements', id), { status: 'rejected' }, { merge: true });
-    } catch (e) {
-      console.warn('Firestore rejectAgreement:', e);
-    }
+    syncDocInBackground(doc(db, 'agreements', id), { status: 'rejected' }, { merge: true });
   };
 
   // Manually mark a pact as triggered (used by the "simulate" action and by
@@ -2356,20 +2406,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updatedAt: new Date().toISOString(),
     };
     setAgreements((prev) => prev.map((a) => (a.id === id ? { ...a, ...updates } : a)));
-    try {
-      await cloudSetDoc(doc(db, 'agreements', id), updates, { merge: true });
-    } catch (e) {
-      console.warn('Firestore triggerAgreement:', e);
-    }
+    syncDocInBackground(doc(db, 'agreements', id), updates, { merge: true });
   };
 
   const deleteAgreement = async (id: string) => {
     setAgreements((prev) => prev.filter((a) => a.id !== id));
-    try {
-      await cloudDeleteDoc(doc(db, 'agreements', id));
-    } catch (e) {
-      console.warn('Firestore deleteAgreement:', e);
-    }
+    removeDocInBackground(doc(db, 'agreements', id));
   };
 
   // Resolve Sanction. Completion is final, while relief/swap requests wait for
@@ -2390,8 +2432,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             : a
         )
       );
-      try {
-        await cloudSetDoc(
+      syncDocInBackground(
           doc(db, 'agreements', id),
           {
             status: 'completed',
@@ -2400,9 +2441,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           },
           { merge: true }
         );
-      } catch (e) {
-        console.warn('Firestore resolveSanction:', e);
-      }
       return;
     }
 
@@ -2421,8 +2459,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           : a
       )
     );
-    try {
-      await cloudSetDoc(
+    syncDocInBackground(
         doc(db, 'agreements', id),
         {
           status: 'triggered',
@@ -2434,9 +2471,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         },
         { merge: true }
       );
-    } catch (e) {
-      console.warn('Firestore resolveSanction:', e);
-    }
   };
 
   // Partner decision on a relief/swap request.
@@ -2466,8 +2500,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       )
     );
 
-    try {
-      await cloudSetDoc(
+    syncDocInBackground(
         doc(db, 'agreements', id),
         {
           ...updates,
@@ -2477,21 +2510,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         },
         { merge: true }
       );
-    } catch (e) {
-      console.warn('Firestore respondToPendingAction:', e);
-    }
   };
 
   // Use Joker Card
   const useJokerCard = async (agreementId: string): Promise<boolean> => {
     const isUser1 = myUid === couple.user1Id;
     const currentJokers = isUser1 ? couple.jokerCardsUser1 : couple.jokerCardsUser2;
-    if (currentJokers <= 0) return false;
+    if (currentJokers <= 0) {
+      emitSyncEvent({
+        at: Date.now(),
+        kind: 'write',
+        target: 'kartu maaf',
+        ok: false,
+        message: 'kartumu sudah habis, jatah berikutnya datang bulan depan',
+      });
+      return false;
+    }
 
     const nextJokers = currentJokers - 1;
     const coupleUpdates = isUser1 ? { jokerCardsUser1: nextJokers } : { jokerCardsUser2: nextJokers };
+    // Menandai bulan pemakaian membuat pengisian ulang berikutnya terhitung dari
+    // sekarang, bukan dari kapan terakhir kali kartu disentuh.
+    const monthKey = jokerMonthKeyOf();
 
-    setCouple((prev) => ({ ...prev, ...coupleUpdates }));
+    setCouple((prev) => ({ ...prev, ...coupleUpdates, jokerMonthKey: monthKey }));
     setAgreements((prev) =>
       prev.map((a) =>
         a.id === agreementId
@@ -2500,12 +2542,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       )
     );
 
-    await patchCoupleRoom(coupleUpdates, 'useJokerCard');
-    try {
-      await cloudSetDoc(doc(db, 'agreements', agreementId), { status: 'pardoned' }, { merge: true });
-    } catch (e) {
-      console.warn('Firestore useJokerCard:', e);
-    }
+    await patchCoupleRoom({ ...coupleUpdates, jokerMonthKey: monthKey }, 'useJokerCard');
+    syncDocInBackground(doc(db, 'agreements', agreementId), { status: 'pardoned' }, { merge: true });
     return true;
   };
 
@@ -2546,11 +2584,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await addCoupleXP(25);
     }
     sound.playHabitComplete();
-    try {
-      await cloudSetDoc(doc(db, 'checkins', id), newCheckIn);
-    } catch (e) {
-      console.warn('Firestore recordCheckIn:', e);
-    }
+    syncDocInBackground(doc(db, 'checkins', id), newCheckIn);
   };
 
   // Unlock Island Decoration with XP. The read-check-write runs in a transaction
@@ -2643,15 +2677,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     coupleRef.current = nextCouple;
     setCouple(nextCouple);
     if (!cloudSyncEnabled) return;
-    try {
-      await cloudSetDoc(
+    syncDocInBackground(
         doc(db, 'couples', roomId),
         { levelXp: increment(amount) },
         { merge: true }
       );
-    } catch (e) {
-      console.warn('Firestore addCoupleXP:', e);
-    }
   };
 
   const triggerSimulatedHighFive = () => {

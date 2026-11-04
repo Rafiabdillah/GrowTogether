@@ -26,6 +26,7 @@ import { Habit, HabitCategory } from '../types/index';
 import { XP_PER_LEVEL, toLocalDateString } from '../data/mockData';
 import { AppleWatchRings } from '../components/AppleWatchRings';
 import { useDialog } from '../hooks/useDialog';
+import { useConfirm } from '../components/ConfirmDialog';
 
 const ThreeGarden = lazy(() =>
   import('../components/ThreeGarden').then((m) => ({ default: m.ThreeGarden }))
@@ -90,6 +91,21 @@ export const TodayView: React.FC<TodayViewProps> = ({
   const [newFrequency, setNewFrequency] = useState<Habit['frequency']>('daily');
   const [newIsShared, setNewIsShared] = useState(true);
   const [newIsPrivate, setNewIsPrivate] = useState(false);
+  const [isSavingHabit, setIsSavingHabit] = useState(false);
+  const [habitFormError, setHabitFormError] = useState<string | null>(null);
+  const [isQuickAdding, setIsQuickAdding] = useState<string | null>(null);
+  const { confirm, confirmDialog } = useConfirm();
+
+  // Dua ketukan pada kartu saran dulu membuat dua habit kembar.
+  const quickAddHabit = async (title: string, data: Omit<Habit, 'id' | 'createdAt'>) => {
+    if (isQuickAdding) return;
+    setIsQuickAdding(title);
+    try {
+      await addHabit(data);
+    } finally {
+      setIsQuickAdding(null);
+    }
+  };
 
   const selectedWeekday = new Date(`${selectedDate}T12:00:00`).getDay();
   const isScheduledForDate = (habit: Habit) => {
@@ -178,7 +194,12 @@ export const TodayView: React.FC<TodayViewProps> = ({
 
   const handleCreateHabit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTitle.trim()) return;
+    setHabitFormError(null);
+    if (!newTitle.trim()) {
+      setHabitFormError('Nama kebiasaan wajib diisi supaya kamu dan pasangan tahu apa yang dijaga.');
+      return;
+    }
+    if (isSavingHabit) return;
 
     let icon = 'Timer';
     if (newCategory === 'baca') icon = 'BookOpen';
@@ -186,32 +207,37 @@ export const TodayView: React.FC<TodayViewProps> = ({
     else if (newCategory === 'kesehatan') icon = 'Droplets';
     else if (newCategory === 'spiritual') icon = 'HeartHandshake';
 
-    if (editingHabitId) {
-      await editHabit(editingHabitId, {
-        title: newTitle.trim(),
-        icon,
-        category: newCategory,
-        targetMinutes: Number(newMinutes) || 0,
-        frequency: newFrequency,
-        isShared: newIsShared,
-        isPrivate: newIsPrivate,
-      });
-    } else {
-      await addHabit({
-        coupleId: couple.id || '',
-        ownerId: currentUser.id,
-        title: newTitle.trim(),
-        icon,
-        category: newCategory,
-        targetMinutes: Number(newMinutes) || 0,
-        frequency: newFrequency,
-        isShared: newIsShared,
-        isPrivate: newIsPrivate,
-      });
-    }
+    setIsSavingHabit(true);
+    try {
+      if (editingHabitId) {
+        await editHabit(editingHabitId, {
+          title: newTitle.trim(),
+          icon,
+          category: newCategory,
+          targetMinutes: Number(newMinutes) || 0,
+          frequency: newFrequency,
+          isShared: newIsShared,
+          isPrivate: newIsPrivate,
+        });
+      } else {
+        await addHabit({
+          coupleId: couple.id || '',
+          ownerId: currentUser.id,
+          title: newTitle.trim(),
+          icon,
+          category: newCategory,
+          targetMinutes: Number(newMinutes) || 0,
+          frequency: newFrequency,
+          isShared: newIsShared,
+          isPrivate: newIsPrivate,
+        });
+      }
 
-    setIsAddModalOpen(false);
-    setEditingHabitId(null);
+      setIsAddModalOpen(false);
+      setEditingHabitId(null);
+    } finally {
+      setIsSavingHabit(false);
+    }
   };
 
   const isBothCompletedAll =
@@ -488,8 +514,9 @@ export const TodayView: React.FC<TodayViewProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 max-w-xl mx-auto pt-2">
               <button
                 type="button"
+                disabled={isQuickAdding !== null}
                 onClick={() =>
-                  addHabit({
+                  quickAddHabit('Baca Buku Bersama', {
                     coupleId: couple.id,
                     ownerId: currentUser.id,
                     title: 'Baca Buku Bersama',
@@ -501,18 +528,19 @@ export const TodayView: React.FC<TodayViewProps> = ({
                     icon: 'BookOpen',
                   })
                 }
-                className="p-3.5 rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 hover:border-amber-500 text-left transition-all group"
+                className="p-3.5 rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 hover:border-amber-500 text-left transition-all group disabled:opacity-60"
               >
                 <span className="text-xs font-bold block text-stone-800 dark:text-stone-100 group-hover:text-amber-600 dark:group-hover:text-amber-400">
-                  + Baca 15 Menit
+                  {isQuickAdding === 'Baca Buku Bersama' ? 'Menyimpan...' : '+ Baca 15 Menit'}
                 </span>
                 <span className="text-[11px] text-stone-500">Kategori Bacaan</span>
               </button>
 
               <button
                 type="button"
+                disabled={isQuickAdding !== null}
                 onClick={() =>
-                  addHabit({
+                  quickAddHabit('Jalan Santai Sore', {
                     coupleId: couple.id,
                     ownerId: currentUser.id,
                     title: 'Jalan Santai Sore',
@@ -524,18 +552,19 @@ export const TodayView: React.FC<TodayViewProps> = ({
                     icon: 'Footprints',
                   })
                 }
-                className="p-3.5 rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 hover:border-emerald-500 text-left transition-all group"
+                className="p-3.5 rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 hover:border-emerald-500 text-left transition-all group disabled:opacity-60"
               >
                 <span className="text-xs font-bold block text-stone-800 dark:text-stone-100 group-hover:text-emerald-600 dark:group-hover:text-emerald-400">
-                  + Jalan Sore 20 Mnt
+                  {isQuickAdding === 'Jalan Santai Sore' ? 'Menyimpan...' : '+ Jalan Sore 20 Mnt'}
                 </span>
                 <span className="text-[11px] text-stone-500">Kebugaran Fisik</span>
               </button>
 
               <button
                 type="button"
+                disabled={isQuickAdding !== null}
                 onClick={() =>
-                  addHabit({
+                  quickAddHabit('Doa & Syukur Harian', {
                     coupleId: couple.id,
                     ownerId: currentUser.id,
                     title: 'Doa & Syukur Harian',
@@ -547,10 +576,10 @@ export const TodayView: React.FC<TodayViewProps> = ({
                     icon: 'HeartHandshake',
                   })
                 }
-                className="p-3.5 rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 hover:border-rose-500 text-left transition-all group"
+                className="p-3.5 rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 hover:border-rose-500 text-left transition-all group disabled:opacity-60"
               >
                 <span className="text-xs font-bold block text-stone-800 dark:text-stone-100 group-hover:text-rose-600 dark:group-hover:text-rose-400">
-                  + Syukur 5 Menit
+                  {isQuickAdding === 'Doa & Syukur Harian' ? 'Menyimpan...' : '+ Syukur 5 Menit'}
                 </span>
                 <span className="text-[11px] text-stone-500">Ritual Batiniah</span>
               </button>
@@ -687,10 +716,14 @@ export const TodayView: React.FC<TodayViewProps> = ({
                   {habit.ownerId === currentUser.id && (
                     <button
                       type="button"
-                      onClick={() => {
-                        if (window.confirm(`Hapus habit "${habit.title}"? Catatan penyelesaiannya ikut hilang.`)) {
-                          deleteHabit(habit.id);
-                        }
+                      onClick={async () => {
+                        const ok = await confirm({
+                          title: 'Hapus kebiasaan ini?',
+                          message: `"${habit.title}" dan seluruh catatan penyelesaiannya hilang permanen dari ruang kalian berdua${habit.isShared ? ', termasuk untuk pasanganmu' : ''}.`,
+                          confirmLabel: 'Ya, hapus',
+                          danger: true,
+                        });
+                        if (ok) deleteHabit(habit.id);
                       }}
                       aria-label={`Hapus habit: ${habit.title}`}
                       className="min-h-[44px] min-w-[44px] flex items-center justify-center text-stone-500 hover:text-rose-700 dark:hover:text-rose-400 transition-colors"
@@ -800,17 +833,29 @@ export const TodayView: React.FC<TodayViewProps> = ({
             <form onSubmit={handleCreateHabit} className="mt-5 space-y-4">
               <div>
                 <label htmlFor="habit-title" className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
-                  Nama kebiasaan
+                  Nama kebiasaan{' '}
+                  <span className="text-rose-500" aria-hidden="true">*</span>
+                  <span className="sr-only">wajib diisi</span>
                 </label>
                 <input
                   id="habit-title"
                   type="text"
                   required
+                  aria-required="true"
+                  aria-invalid={habitFormError ? 'true' : undefined}
                   placeholder="Misal: Olahraga pagi 20 menit"
                   value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
+                  onChange={(e) => {
+                    setNewTitle(e.target.value);
+                    if (habitFormError) setHabitFormError(null);
+                  }}
                   className="w-full min-h-[44px] px-3.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-transparent text-base sm:text-sm"
                 />
+                {habitFormError && (
+                  <p role="alert" className="mt-1.5 text-[11px] font-medium text-rose-600 dark:text-rose-400">
+                    {habitFormError}
+                  </p>
+                )}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -904,15 +949,18 @@ export const TodayView: React.FC<TodayViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="min-h-[44px] px-5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-medium hover:opacity-90"
+                  disabled={isSavingHabit}
+                  className="min-h-[44px] px-5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-medium hover:opacity-90 disabled:opacity-50"
                 >
-                  {editingHabitId ? 'Simpan perubahan' : 'Simpan habit'}
+                  {isSavingHabit ? 'Menyimpan...' : editingHabitId ? 'Simpan perubahan' : 'Simpan habit'}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {confirmDialog}
     </div>
   );
 };

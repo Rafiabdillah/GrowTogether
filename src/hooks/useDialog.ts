@@ -25,6 +25,11 @@ export function useDialog<T extends HTMLElement>(isOpen: boolean, onClose: () =>
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      // Sebuah konfirmasi di atas dialog tidak boleh berebut fokus dan Escape
+      // dengan trap dialog induknya; biarkan dialog konfirmasi yang menjawab.
+      if (document.querySelector('[data-confirm-open]') && !node?.contains(document.activeElement)) {
+        return;
+      }
       if (event.key === 'Escape') {
         event.stopPropagation();
         onCloseRef.current();

@@ -7,7 +7,7 @@ import { explainSyncEvent } from '../lib/syncBus';
  * A change that never reaches Firebase used to look exactly like a change that
  * the partner simply did not make, so the failure itself is now on screen.
  */
-export const SyncStatusBanner: React.FC<{ onOpenDiagnostics: () => void }> = ({
+export const SyncStatusBanner: React.FC<{ onOpenDiagnostics?: () => void }> = ({
   onOpenDiagnostics,
 }) => {
   const { syncAlert, dismissSyncAlert, lastSentReaction, isOnline } = useApp();
@@ -37,19 +37,21 @@ export const SyncStatusBanner: React.FC<{ onOpenDiagnostics: () => void }> = ({
               {explainSyncEvent(syncAlert)}
               {!isOnline && ' Perangkat sedang luring.'}
             </p>
-            <button
-              type="button"
-              onClick={onOpenDiagnostics}
-              className="mt-1.5 text-[11px] font-bold underline underline-offset-2"
-            >
-              Buka diagnostik
-            </button>
+            {onOpenDiagnostics && (
+              <button
+                type="button"
+                onClick={onOpenDiagnostics}
+                className="mt-1.5 text-[11px] font-bold underline underline-offset-2"
+              >
+                Buka diagnostik
+              </button>
+            )}
           </div>
           <button
             type="button"
             onClick={dismissSyncAlert}
             aria-label="Tutup peringatan sinkronisasi"
-            className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg hover:bg-white/10 dark:hover:bg-stone-900/10"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:bg-white/10 dark:hover:bg-stone-900/10"
           >
             <X className="w-4 h-4" aria-hidden="true" />
           </button>

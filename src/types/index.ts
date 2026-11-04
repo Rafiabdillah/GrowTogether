@@ -30,6 +30,9 @@ export interface Couple {
   levelNumber: number;
   jokerCardsUser1: number;
   jokerCardsUser2: number;
+  // Bulan terakhir kartu maaf diisi ulang ('YYYY-MM'). Kartu cuma 2 per bulan,
+  // jadi pemakai tidak boleh kehabisan selamanya hanya karena lupa pakai.
+  jokerMonthKey?: string;
   allSanctionsPaused: boolean;
   unlockedDecorations: IslandDecorationId[];
   selectedTimeOfDay: TimeOfDay;

@@ -13,16 +13,34 @@ export const DecorationShopModal: React.FC<DecorationShopModalProps> = ({ onClos
   const { couple, unlockDecoration } = useApp();
   const dialogRef = useDialog<HTMLDivElement>(true, onClose);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [statusIsError, setStatusIsError] = useState(false);
+  const [isBuying, setIsBuying] = useState<string | null>(null);
+
+  const say = (message: string, isError = false) => {
+    setStatusMessage(message);
+    setStatusIsError(isError);
+  };
 
   const handleUnlock = async (id: IslandDecorationId, cost: number) => {
+    if (isBuying) return;
     if (couple.levelXp < cost) {
-      setStatusMessage('XP belum cukup. Selesaikan habit atau sesi fokus dulu.');
+      say('XP belum cukup. Selesaikan habit atau sesi fokus dulu.', true);
       return;
     }
-    const unlocked = await unlockDecoration(id);
-    setStatusMessage(
-      unlocked ? 'Dekorasi terpasang di pulau kalian!' : 'Dekorasi gagal dibuka. Coba lagi.'
-    );
+    // Pembelian XP memakai saldo di server; dua ketukan cepat bisa menghabiskan
+    // saldo yang sama dua kali kalau tombol tidak dikunci selama permintaan jalan.
+    setIsBuying(id);
+    try {
+      const unlocked = await unlockDecoration(id);
+      say(
+        unlocked
+          ? 'Dekorasi terpasang di pulau kalian!'
+          : 'Dekorasi gagal dibuka. XP kamu tidak berkurang — coba lagi.',
+        !unlocked
+      );
+    } finally {
+      setIsBuying(null);
+    }
   };
 
   return (
@@ -45,6 +63,7 @@ export const DecorationShopModal: React.FC<DecorationShopModalProps> = ({ onClos
           </div>
           <button type="button"
             onClick={onClose}
+            aria-label="Tutup toko dekorasi"
             className="min-h-[44px] min-w-[44px] flex items-center justify-center p-1.5 rounded-xl hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -108,7 +127,9 @@ export const DecorationShopModal: React.FC<DecorationShopModalProps> = ({ onClos
                 <div className="shrink-0">
                   {isUnlocked ? (
                     <button
+                      type="button"
                       disabled
+                      aria-label={`${item.name} sudah terpasang`}
                       className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-100/60 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200/70 dark:border-emerald-800 cursor-default"
                     >
                       Aktif
@@ -116,8 +137,9 @@ export const DecorationShopModal: React.FC<DecorationShopModalProps> = ({ onClos
                   ) : (
                     <button type="button"
                       onClick={() => handleUnlock(item.id, item.xpCost)}
-                      disabled={!canAfford}
-                      className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                      disabled={!canAfford || isBuying !== null}
+                      aria-label={canAfford ? `Buka ${item.name} seharga ${item.xpCost} XP` : `${item.name} butuh ${item.xpCost} XP`}
+                      className={`min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all disabled:opacity-70 ${
                         canAfford
                           ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900 hover:scale-102 shadow-xs cursor-pointer'
                           : 'bg-stone-200 dark:bg-stone-800 text-stone-500 dark:text-stone-600 cursor-not-allowed'
@@ -126,7 +148,7 @@ export const DecorationShopModal: React.FC<DecorationShopModalProps> = ({ onClos
                       {canAfford ? (
                         <>
                           <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                          <span>Buka {item.xpCost} XP</span>
+                          <span>{isBuying === item.id ? 'Membuka...' : `Buka ${item.xpCost} XP`}</span>
                         </>
                       ) : (
                         <>
@@ -144,7 +166,14 @@ export const DecorationShopModal: React.FC<DecorationShopModalProps> = ({ onClos
 
         {/* Footer Note */}
         {statusMessage && (
-          <p role="status" className="mt-4 text-xs font-medium text-emerald-700 dark:text-emerald-300 text-center">
+          <p
+            role="status"
+            className={`mt-4 text-xs font-medium text-center ${
+              statusIsError
+                ? 'text-rose-700 dark:text-rose-300'
+                : 'text-emerald-700 dark:text-emerald-300'
+            }`}
+          >
             {statusMessage}
           </p>
         )}

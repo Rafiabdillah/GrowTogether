@@ -25,7 +25,8 @@ import { ColorTheme } from '../types';
 import { useDialog } from '../hooks/useDialog';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { friendlyAccountError } from '../lib/authErrors';
-import { explainSyncEvent } from '../lib/syncBus';
+import { explainSyncEvent, friendlyTarget } from '../lib/syncBus';
+import { useConfirm } from './ConfirmDialog';
 import { KIND_LABELS, NOTIFICATION_KIND_ORDER, type NotificationKind } from '../lib/growNotifTypes';
 import type { DeliveryResult, PermissionState } from '../lib/notifications';
 
@@ -131,6 +132,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [partnerInputCode, setPartnerInputCode] = useState('');
   const [pairError, setPairError] = useState('');
   const [pairSuccess, setPairSuccess] = useState(false);
+  const [isPairing, setIsPairing] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [isRebuilding, setIsRebuilding] = useState(false);
+  const { confirm, confirmDialog } = useConfirm();
+
+  const handleRebuildCache = async () => {
+    const ok = await confirm({
+      title: 'Bersihkan salinan lokal?',
+      message:
+        'Aplikasi menghapus data yang tersimpan di perangkat ini lalu memuat ulang. Data di server dan milik pasanganmu tidak tersentuh, tapi semua perubahan yang belum tersinkron akan hilang dari antrean perangkat ini.',
+      confirmLabel: 'Ya, bersihkan & muat ulang',
+      danger: true,
+    });
+    if (!ok || isRebuilding) return;
+    setIsRebuilding(true);
+    try {
+      await rebuildLocalCache();
+    } finally {
+      setIsRebuilding(false);
+    }
+  };
   const [notifTestResult, setNotifTestResult] = useState('');
 
   const handleNotifTest = async () => {
@@ -232,11 +254,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editName.trim()) return;
-    await updateUserProfile(currentUser.id, {
-      displayName: editName.trim(),
-      colorTheme: editTheme,
-    });
-    onClose();
+    if (isSavingProfile) return;
+    setIsSavingProfile(true);
+    try {
+      await updateUserProfile(currentUser.id, {
+        displayName: editName.trim(),
+        colorTheme: editTheme,
+      });
+      onClose();
+    } finally {
+      setIsSavingProfile(false);
+    }
   };
 
   const handleCopyCode = () => {
@@ -257,6 +285,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       if (ok) {
         setCopiedLink(true);
         setTimeout(() => setCopiedLink(false), 2500);
+      } else {
+        setPairError('Gagal menyalin tautan. Salin alamat di bilah browser secara manual.');
       }
     });
   };
@@ -265,11 +295,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     e.preventDefault();
     setPairError('');
     setPairSuccess(false);
-    if (!partnerInputCode.trim()) return;
+    if (!partnerInputCode.trim()) {
+      setPairError('Masukkan kode ruang pasanganmu dulu.');
+      return;
+    }
+    if (isPairing) return;
+    setIsPairing(true);
 
     try {
-      const success = await pairWithCode(partnerInputCode.trim().toUpperCase());
-      if (success) {
+      const result = await pairWithCode(partnerInputCode.trim().toUpperCase());
+      if (result.ok) {
         setPairSuccess(true);
         setPartnerInputCode('');
         setTimeout(() => {
@@ -278,11 +313,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         }, 1500);
       } else {
         setPairError(
-          'Kode tidak ditemukan. Pastikan pasangan sudah menekan "Buat Ruang Baru" dan bagikan kode terbaru.'
+          result.reason ||
+            'Kode tidak ditemukan. Pastikan pasangan sudah menekan "Buat Ruang Baru" dan bagikan kode terbaru.'
         );
       }
     } catch {
       setPairError('Gagal menghubungkan. Periksa koneksi lalu coba lagi.');
+    } finally {
+      setIsPairing(false);
     }
   };
 
@@ -551,9 +589,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="pt-2">
                 <button
                   type="submit"
-                  className="w-full py-2.5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 font-semibold text-xs hover:opacity-90 active:scale-98 transition-all shadow-xs"
+                  disabled={isSavingProfile || !editName.trim()}
+                  className="w-full min-h-[44px] py-2.5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 font-semibold text-xs hover:opacity-90 active:scale-98 transition-all shadow-xs disabled:opacity-50"
                 >
-                  Simpan Perubahan
+                  {isSavingProfile ? 'Menyimpan...' : 'Simpan Perubahan'}
                 </button>
               </div>
             </form>
@@ -588,12 +627,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                 <div className="flex items-center gap-2">
                   <div className="flex-1 py-2.5 px-3.5 rounded-xl bg-white dark:bg-stone-900 border border-amber-300 dark:border-amber-700 text-center font-mono text-lg font-extrabold tracking-widest text-amber-700 dark:text-amber-300">
-                    {roomCode || 'MENGGUNGGU...'}
+                    {roomCode || 'MENUNGGU...'}
                   </div>
 
                   <button
                     type="button"
                     onClick={handleCopyCode}
+                    aria-label="Salin kode ruang"
                     className="min-h-[44px] flex items-center gap-1.5 px-3.5 rounded-xl bg-amber-700 hover:bg-amber-800 text-white font-semibold text-xs transition-colors"
                   >
                     {copiedCode ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
@@ -622,9 +662,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     />
                     <button
                       type="submit"
-                      className="px-4 py-2.5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-bold hover:opacity-90 active:scale-98 transition-all"
+                      disabled={isPairing || !partnerInputCode.trim()}
+                      className="px-4 py-2.5 min-h-[44px] rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-bold hover:opacity-90 active:scale-98 transition-all disabled:opacity-50"
                     >
-                      Hubungkan
+                      {isPairing ? 'Menghubungkan...' : 'Hubungkan'}
                     </button>
                   </div>
 
@@ -850,7 +891,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           {event.ok ? '✓' : '!'}
                         </span>
                         <span className="text-stone-600 dark:text-stone-300 break-all">
-                          {event.kind === 'listen' ? `muat ${event.target}` : event.target}
+                          {event.kind === 'listen'
+                            ? `muat ${friendlyTarget(event.target)}`
+                            : friendlyTarget(event.target)}
                           {event.ok
                             ? ''
                             : ` — ${explainSyncEvent(event)}`}
@@ -872,11 +915,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </p>
                 <button
                   type="button"
-                  onClick={() => void rebuildLocalCache()}
-                  className="mt-3 w-full min-h-[44px] rounded-xl border border-amber-300 dark:border-amber-900/50 text-amber-800 dark:text-amber-300 text-xs font-semibold hover:bg-amber-100 dark:hover:bg-amber-900/20 transition-colors"
+                  onClick={() => void handleRebuildCache()}
+                  disabled={isRebuilding}
+                  className="mt-3 w-full min-h-[44px] rounded-xl border border-amber-300 dark:border-amber-900/50 text-amber-800 dark:text-amber-300 text-xs font-semibold hover:bg-amber-100 dark:hover:bg-amber-900/20 transition-colors disabled:opacity-60"
                 >
-                  Bersihkan salinan lokal &amp; muat ulang
+                  {isRebuilding ? 'Membersihkan...' : 'Bersihkan salinan lokal & muat ulang'}
                 </button>
+                <p className="mt-2 text-[11px] text-stone-500 dark:text-stone-400">
+                  Gunakan ini hanya kalau data pasangan tidak muncul padahal mereka sudah
+                  mengubahnya. Perubahan yang belum terkirim ke server ikut terhapus.
+                </p>
               </div>
             </div>
           )}
@@ -1044,6 +1092,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     {notifTestResult}
                   </p>
                 )}
+                {notifications.lastReminder && (
+                  <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-2">
+                    Pengingat terakhir (
+                    {KIND_LABELS[notifications.lastReminder.kind]?.title || 'notifikasi'} pukul{' '}
+                    {new Date(notifications.lastReminder.at).toLocaleTimeString('id-ID', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                    ): {TEST_RESULT_COPY[notifications.lastReminder.result]}
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -1180,6 +1239,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <button
                 type="button"
                 onClick={handleCopyLink}
+                aria-label="Salin tautan aplikasi"
                 className="w-full min-h-[44px] rounded-xl border border-stone-200 dark:border-stone-700 text-xs font-semibold text-stone-700 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800 flex items-center justify-center gap-2 transition-colors"
               >
                 {copiedLink ? <Check className="w-4 h-4" aria-hidden="true" /> : <Copy className="w-4 h-4" aria-hidden="true" />}
@@ -1383,6 +1443,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           )}
         </div>
       </div>
+
+      {confirmDialog}
     </div>
   );
 };

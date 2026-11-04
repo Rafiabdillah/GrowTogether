@@ -44,6 +44,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClos
   const [partnerCodeInput, setPartnerCodeInput] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [pairError, setPairError] = useState('');
+  const [isPairing, setIsPairing] = useState(false);
   const wasOpenRef = useRef(false);
 
   const dialogRef = useDialog<HTMLDivElement>(isOpen, onClose);
@@ -116,17 +117,22 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClos
       setStep(3);
       return;
     }
+    if (isPairing) return;
+    setIsPairing(true);
     try {
-      const success = await pairWithCode(partnerCodeInput.trim().toUpperCase());
-      if (success) {
+      const result = await pairWithCode(partnerCodeInput.trim().toUpperCase());
+      if (result.ok) {
         setStep(3);
       } else {
         setPairError(
-          'Kode tidak ditemukan. Minta pasangan menekan "Buat Ruang Bersama" lebih dulu, lalu masukkan kodenya.'
+          result.reason ||
+            'Kode tidak ditemukan. Minta pasangan menekan "Buat Ruang Bersama" lebih dulu, lalu masukkan kodenya.'
         );
       }
     } catch {
       setPairError('Gagal menghubungkan. Periksa koneksi lalu coba lagi.');
+    } finally {
+      setIsPairing(false);
     }
   };
 
@@ -190,23 +196,26 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClos
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400 mb-1">
-                  Nama Panggilan Kamu
+                <label htmlFor="onboarding-name" className="block text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400 mb-1">
+                  Nama Panggilan Kamu <span className="text-rose-500" aria-hidden="true">*</span>
+                  <span className="sr-only">wajib diisi</span>
                 </label>
                 <input
+                  id="onboarding-name"
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Misal: Rama"
                   required
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  aria-required="true"
+                  className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400 mb-2">
+                <span className="block text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400 mb-2">
                   Pilih Warna Karakter Lentera Kamu
-                </label>
+                </span>
                 <div className="grid grid-cols-2 gap-2">
                   {THEME_OPTIONS.map((theme) => {
                     const isSelected = selectedTheme === theme.id;
@@ -282,7 +291,8 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClos
                   </div>
                   <button type="button"
                     onClick={handleCopyCode}
-                    className="flex items-center gap-1 px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold"
+                    aria-label="Salin kode ruang"
+                    className="flex items-center gap-1 px-3 py-2 min-h-[44px] rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold"
                   >
                     {copiedCode ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                     <span>{copiedCode ? 'Tersalin' : 'Salin'}</span>
@@ -292,18 +302,19 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClos
 
               {/* Partner code input */}
               <form onSubmit={handlePairSubmit} className="space-y-2">
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">
+                <label htmlFor="onboarding-pair-code" className="block text-[11px] font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">
                   Atau Masukkan Kode dari Pasangan:
                 </label>
                 <input
+                  id="onboarding-pair-code"
                   type="text"
                   value={partnerCodeInput}
                   onChange={(e) => setPartnerCodeInput(e.target.value.toUpperCase())}
                   placeholder="Misal: GROW-5678"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 font-mono text-sm uppercase focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 font-mono text-sm uppercase focus:outline-none focus:ring-2 focus:ring-amber-500"
                 />
                 {pairError && (
-                  <p className="text-xs text-rose-600 dark:text-rose-400">{pairError}</p>
+                  <p role="alert" className="text-xs leading-relaxed text-rose-600 dark:text-rose-400">{pairError}</p>
                 )}
 
                 <div className="flex gap-2 pt-2">
@@ -316,9 +327,10 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClos
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 py-2.5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-bold flex items-center justify-center gap-1.5"
+                    disabled={isPairing}
+                    className="flex-1 min-h-[44px] py-2.5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-bold flex items-center justify-center gap-1.5 disabled:opacity-50"
                   >
-                    <span>{partnerCodeInput ? 'Hubungkan & Lanjut' : 'Lewati & Lanjut'}</span>
+                    <span>{isPairing ? 'Menghubungkan...' : partnerCodeInput ? 'Hubungkan & Lanjut' : 'Lewati & Lanjut'}</span>
                     <ArrowRight className="w-4 h-4" />
                   </button>
                 </div>

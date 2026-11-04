@@ -95,12 +95,21 @@ function MainAppContent() {
     );
   }
 
+  // Layar masuk & pairing harus tetap bisa menampilkan pesan sinkronisasi:
+  // tanpa banner, kode ruang yang gagal hanya berbalik tanpa sebab.
+  const preRoomScreen = (screen: React.ReactNode) => (
+    <>
+      <SyncStatusBanner />
+      {screen}
+    </>
+  );
+
   if (!authUser && !isDemoMode) {
-    return <AuthView />;
+    return preRoomScreen(<AuthView />);
   }
 
   if (authUser && !isDemoMode && !currentUser.coupleId) {
-    return <PairingView />;
+    return preRoomScreen(<PairingView />);
   }
 
   const handleStartTimerFromHabit = (

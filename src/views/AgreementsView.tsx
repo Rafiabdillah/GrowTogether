@@ -23,6 +23,7 @@ import {
 import { validateAgreementSafety } from '../lib/safetyFilter';
 import { SanctionActionModal } from '../components/SanctionActionModal';
 import { useDialog } from '../hooks/useDialog';
+import { useConfirm } from '../components/ConfirmDialog';
 
 const STATUS_META: Record<AgreementStatus, { label: string; className: string }> = {
   draft: {
@@ -67,6 +68,7 @@ export const AgreementsView: React.FC = () => {
     currentUser,
     partnerUser,
     couple,
+    cloudIdentity,
     agreements,
     createAgreement,
     approveAgreement,
@@ -89,19 +91,36 @@ export const AgreementsView: React.FC = () => {
   const [triggerType, setTriggerType] = useState<AgreementTriggerType>('broken_streak');
   const [triggerThreshold, setTriggerThreshold] = useState<number>(1);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+  const [busyActionId, setBusyActionId] = useState<string | null>(null);
+  const { confirm, confirmDialog } = useConfirm();
 
   // Filter agreements by type
   const sanctionList = agreements.filter((a) => a.type === 'sanksi');
   const rewardList = agreements.filter((a) => a.type === 'hadiah');
 
-  // Joker cards for current user
+  // Joker cards for current user — memakai uid cloud yang sama dengan
+  // useJokerCard, bukan id profil lokal yang bisa berbeda.
   const userJokers =
-    currentUser.id === couple.user1Id ? couple.jokerCardsUser1 : couple.jokerCardsUser2;
+    cloudIdentity.userId === couple.user1Id ? couple.jokerCardsUser1 : couple.jokerCardsUser2;
   const hasPartner = !!couple.user2Id;
+
+  // Satu kali klik = satu tulisan. Tanpa guard, tombol "Setujui" yang diklik dua
+  // kali mengirim dua patch dan pasangan bisa melihat status yang naik-turun.
+  const runAction = async (id: string, fn: () => Promise<void>) => {
+    if (busyActionId !== null) return;
+    setBusyActionId(id);
+    try {
+      await fn();
+    } finally {
+      setBusyActionId(null);
+    }
+  };
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    if (isCreating) return;
 
     const safetyCheck = validateAgreementSafety(title);
     if (!safetyCheck.isSafe) {
@@ -109,24 +128,29 @@ export const AgreementsView: React.FC = () => {
       return;
     }
 
-    await createAgreement({
-      coupleId: couple.id,
-      type: agreementType,
-      title: title.trim(),
-      forWhom,
-      creatorId: currentUser.id,
-      creatorName: currentUser.displayName,
-      status: 'pending_approval',
-      partnerApproved: false,
-      triggerType,
-      triggerThreshold,
-      timesTriggered: 0,
-      timesCompleted: 0,
-      timesPardoned: 0,
-    });
+    setIsCreating(true);
+    try {
+      await createAgreement({
+        coupleId: couple.id,
+        type: agreementType,
+        title: title.trim(),
+        forWhom,
+        creatorId: currentUser.id,
+        creatorName: currentUser.displayName,
+        status: 'pending_approval',
+        partnerApproved: false,
+        triggerType,
+        triggerThreshold,
+        timesTriggered: 0,
+        timesCompleted: 0,
+        timesPardoned: 0,
+      });
 
-    setTitle('');
-    setIsCreateModalOpen(false);
+      setTitle('');
+      setIsCreateModalOpen(false);
+    } finally {
+      setIsCreating(false);
+    }
   };
 
   return (
@@ -320,15 +344,17 @@ export const AgreementsView: React.FC = () => {
                   {item.pendingAction && item.pendingActionBy !== currentUser.id && (
                     <>
                       <button type="button"
-                        onClick={() => respondToPendingAction(item.id, true)}
-                        className="flex items-center gap-1 min-h-[44px] px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold"
+                        disabled={busyActionId !== null}
+                        onClick={() => runAction(item.id, () => respondToPendingAction(item.id, true))}
+                        className="flex items-center gap-1 min-h-[44px] px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold disabled:opacity-50"
                       >
                         <Check className="w-3.5 h-3.5" />
                         <span>{item.pendingAction === 'relief' ? 'Setujui Keringanan' : 'Setujui Pengganti'}</span>
                       </button>
                       <button type="button"
-                        onClick={() => respondToPendingAction(item.id, false)}
-                        className="flex items-center gap-1 min-h-[44px] px-3 py-1.5 rounded-xl border border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-400 text-xs font-semibold"
+                        disabled={busyActionId !== null}
+                        onClick={() => runAction(item.id, () => respondToPendingAction(item.id, false))}
+                        className="flex items-center gap-1 min-h-[44px] px-3 py-1.5 rounded-xl border border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-400 text-xs font-semibold disabled:opacity-50"
                         title="Tolak permintaan pasangan"
                       >
                         <X className="w-3.5 h-3.5" />
@@ -357,15 +383,18 @@ export const AgreementsView: React.FC = () => {
                   {isWaitingMyApproval && (
                     <>
                       <button type="button"
-                        onClick={() => approveAgreement(item.id)}
-                        className="flex items-center gap-1 min-h-[44px] px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold"
+                        disabled={busyActionId !== null}
+                        onClick={() => runAction(item.id, () => approveAgreement(item.id))}
+                        className="flex items-center gap-1 min-h-[44px] px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold disabled:opacity-50"
                       >
                         <Check className="w-3.5 h-3.5" />
-                        <span>Setujui</span>
+                        <span>{busyActionId === item.id ? 'Menyimpan...' : 'Setujui'}</span>
                       </button>
                       <button type="button"
-                        onClick={() => rejectAgreement(item.id)}
-                        className="min-h-[44px] min-w-[44px] flex items-center justify-center p-1.5 rounded-xl border border-stone-200 dark:border-stone-700 text-stone-500 hover:text-rose-500"
+                        disabled={busyActionId !== null}
+                        onClick={() => runAction(item.id, () => rejectAgreement(item.id))}
+                        aria-label={`Tolak kesepakatan: ${item.title}`}
+                        className="min-h-[44px] min-w-[44px] flex items-center justify-center p-1.5 rounded-xl border border-stone-200 dark:border-stone-700 text-stone-500 hover:text-rose-500 disabled:opacity-50"
                         title="Tolak kesepakatan"
                       >
                         <X className="w-3.5 h-3.5" />
@@ -376,12 +405,16 @@ export const AgreementsView: React.FC = () => {
                   {/* Manual trigger to simulate a missed commitment */}
                   {item.status === 'active' && item.type === 'sanksi' && !item.pendingAction && (
                     <button type="button"
-                      onClick={() => {
-                        if (window.confirm(`Picu sanksi "${item.title}" sekarang?`)) {
-                          triggerAgreement(item.id);
-                        }
+                      disabled={busyActionId !== null}
+                      onClick={async () => {
+                        const ok = await confirm({
+                          title: 'Simulasi sanksi terpicu?',
+                          message: `Kesepakatan "${item.title}" akan ditandai terpicu dan sanksi harus kamu jalani (atau pakai kartu maaf). Ini hanya simulasi — statusnya bisa diubah kembali di diagnostik.`,
+                          confirmLabel: 'Ya, picu sekarang',
+                        });
+                        if (ok) runAction(item.id, () => triggerAgreement(item.id));
                       }}
-                      className="min-h-[44px] inline-flex items-center text-xs text-amber-700 dark:text-amber-300 hover:underline"
+                      className="min-h-[44px] inline-flex items-center text-xs text-amber-700 dark:text-amber-300 hover:underline disabled:opacity-50"
                     >
                       Simulasi Terpicu
                     </button>
@@ -390,13 +423,18 @@ export const AgreementsView: React.FC = () => {
                   {item.creatorId === currentUser.id &&
                     ['completed', 'pardoned', 'rejected'].includes(item.status) && (
                       <button type="button"
-                        onClick={() => {
-                          if (window.confirm(`Hapus kesepakatan "${item.title}"?`)) {
-                            deleteAgreement(item.id);
-                          }
+                        disabled={busyActionId !== null}
+                        onClick={async () => {
+                          const ok = await confirm({
+                            title: 'Hapus kesepakatan ini?',
+                            message: `"${item.title}" akan hilang permanen dari brankas kalian berdua dan tidak bisa dikembalikan.`,
+                            confirmLabel: 'Ya, hapus',
+                            danger: true,
+                          });
+                          if (ok) runAction(item.id, () => deleteAgreement(item.id));
                         }}
                         aria-label={`Hapus kesepakatan: ${item.title}`}
-                        className="min-h-[44px] min-w-[44px] flex items-center justify-center p-1.5 rounded-xl border border-stone-200 dark:border-stone-700 text-stone-500 hover:text-rose-600"
+                        className="min-h-[44px] min-w-[44px] flex items-center justify-center p-1.5 rounded-xl border border-stone-200 dark:border-stone-700 text-stone-500 hover:text-rose-600 disabled:opacity-50"
                         title="Hapus kesepakatan yang sudah selesai"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -425,12 +463,16 @@ export const AgreementsView: React.FC = () => {
 
             <form onSubmit={handleCreateSubmit} className="mt-4 space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
-                  Isi Kesepakatan (Teks Bebas)
+                <label htmlFor="agreement-title" className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
+                  Isi Kesepakatan (Teks Bebas){' '}
+                  <span className="text-rose-500" aria-hidden="true">*</span>
+                  <span className="sr-only">wajib diisi</span>
                 </label>
                 <textarea
+                  id="agreement-title"
                   rows={2}
                   required
+                  aria-required="true"
                   placeholder={
                     agreementType === 'sanksi'
                       ? 'Misal: Traktir es krim gelato sepulang kerja'
@@ -443,17 +485,18 @@ export const AgreementsView: React.FC = () => {
               </div>
 
               {errorMessage && (
-                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-xs text-rose-700 dark:text-rose-300 leading-relaxed">
+                <div role="alert" className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-xs text-rose-700 dark:text-rose-300 leading-relaxed">
                   {errorMessage}
                 </div>
               )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
+                  <label htmlFor="agreement-for-whom" className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
                     Dikenakan Untuk
                   </label>
                   <select
+                    id="agreement-for-whom"
                     value={forWhom}
                     onChange={(e) => setForWhom(e.target.value as AgreementForWhom)}
                     className="w-full min-h-[44px] px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs"
@@ -465,10 +508,11 @@ export const AgreementsView: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
+                  <label htmlFor="agreement-trigger" className="block text-xs font-semibold text-stone-700 dark:text-stone-300 mb-1">
                     Aturan Pemicu
                   </label>
                   <select
+                    id="agreement-trigger"
                     value={triggerType}
                     onChange={(e) => setTriggerType(e.target.value as AgreementTriggerType)}
                     className="w-full min-h-[44px] px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs"
@@ -510,9 +554,10 @@ export const AgreementsView: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="min-h-[44px] px-5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-medium hover:opacity-90"
+                  disabled={isCreating}
+                  className="min-h-[44px] px-5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-medium hover:opacity-90 disabled:opacity-50"
                 >
-                  {hasPartner ? 'Ajukan ke Pasangan' : 'Simpan & Aktifkan'}
+                  {isCreating ? 'Mengajukan...' : hasPartner ? 'Ajukan ke Pasangan' : 'Simpan & Aktifkan'}
                 </button>
               </div>
             </form>
@@ -527,6 +572,8 @@ export const AgreementsView: React.FC = () => {
           onClose={() => setSelectedSanctionForAction(null)}
         />
       )}
+
+      {confirmDialog}
     </div>
   );
 };

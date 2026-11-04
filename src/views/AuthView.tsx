@@ -48,7 +48,8 @@ export const AuthView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => void retryAuth()}
-                className="w-full min-h-[48px] px-6 rounded-xl bg-gradient-to-r from-amber-500 to-rose-500 text-white font-semibold flex items-center justify-center gap-2 hover:from-amber-600 hover:to-rose-600 transition-colors"
+                disabled={isAuthLoading}
+                className="w-full min-h-[48px] px-6 rounded-xl bg-gradient-to-r from-amber-500 to-rose-500 text-white font-semibold flex items-center justify-center gap-2 hover:from-amber-600 hover:to-rose-600 transition-colors disabled:opacity-60"
               >
                 <RefreshCw className="w-4 h-4" aria-hidden="true" />
                 Coba lagi

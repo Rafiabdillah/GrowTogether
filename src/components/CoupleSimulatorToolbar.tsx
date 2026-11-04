@@ -57,9 +57,10 @@ export const CoupleSimulatorToolbar: React.FC = () => {
               </button>
               <button type="button"
                 onClick={() => setIsOpen(false)}
+                aria-label="Ciutkan toolbar simulator"
                 className="min-h-[44px] min-w-[44px] flex items-center justify-center p-1 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 hover:text-stone-700"
               >
-                <ChevronDown className="w-4 h-4" />
+                <ChevronDown className="w-4 h-4" aria-hidden="true" />
               </button>
             </div>
           </div>
