@@ -33,6 +33,17 @@ registerRoute(
 self.skipWaiting();
 clientsClaim();
 
+// skipWaiting means an already-open page keeps running its own bundle while this
+// newer worker takes over. Say which build is now live so the page can offer a
+// reload instead of letting the two partners drift apart in silence.
+self.addEventListener('activate', () => {
+  void self.clients.matchAll({ includeUncontrolled: true }).then((clients) => {
+    for (const client of clients) {
+      client.postMessage({ type: 'gt:build', version: __APP_VERSION__ });
+    }
+  });
+});
+
 interface WaitUntilEvent extends Event {
   waitUntil: (promise: Promise<unknown>) => void;
 }

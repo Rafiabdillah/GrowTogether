@@ -34,6 +34,16 @@ service cloud.firestore {
       return get(userPath(userId)).data;
     }
 
+    // The room economy is written by the app's own spend transaction. The server
+    // still refuses a balance below zero, so one partner's write can never hand
+    // the couple a negative number to shop with.
+    function safeRoomEconomy() {
+      return (!('levelXp' in incoming())
+          || (incoming().levelXp is number && incoming().levelXp >= 0))
+        && (!('unlockedDecorations' in incoming())
+          || incoming().unlockedDecorations is list);
+    }
+
     function isCoupleMember(coupleId) {
       return coupleId is string
         && coupleId.size() > 0
@@ -97,12 +107,12 @@ service cloud.firestore {
       allow list: if isSignedIn()
         && (resource.data.user1Id == request.auth.uid
             || resource.data.user2Id == request.auth.uid);
-      allow create: if isSignedIn() && isValidId(coupleId)
+      allow create: if isSignedIn() && isValidId(coupleId) && safeRoomEconomy()
         && incoming().user1Id == request.auth.uid
         && (!('user2Id' in incoming())
             || incoming().user2Id == ''
             || incoming().user2Id == null);
-      allow update: if isSignedIn() && isValidId(coupleId)
+      allow update: if isSignedIn() && isValidId(coupleId) && safeRoomEconomy()
         && (
           (isCoupleMember(coupleId)
             && incoming().user1Id == existing().user1Id

@@ -13,12 +13,23 @@ function shiftKey(key: string, days: number): string {
 }
 
 /**
+ * The day the streak is counted back from.
+ *
+ * A phone left open past midnight still holds yesterday as its selected day, and
+ * that would quietly give the two partners different streak numbers for the same
+ * room. The real day therefore wins, except when this device is deliberately
+ * living in a later day (the "maju 1 hari" simulator), which stays intact.
+ */
+export function streakAnchor(selectedDate: string, today: string): string {
+  return selectedDate > today ? selectedDate : today;
+}
+
+/**
  * Consecutive days the couple showed up together.
  *
  * Only couple-visible logs count: a private habit is invisible to the other
  * phone, so counting it would make the two devices disagree about the same
- * streak. Anchor on the selected day so the "maju 1 hari" simulator behaves
- * like a real day passing; a day that has just started is not a broken streak yet.
+ * streak. A day that has just started is not a broken streak yet.
  */
 export function coupleStreak(logs: HabitLog[], anchorDate: string): number {
   const doneDays = new Set(

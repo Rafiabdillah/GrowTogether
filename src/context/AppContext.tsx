@@ -32,7 +32,7 @@ import {
 } from '../data/mockData';
 import { sound } from '../lib/audio';
 import { friendlyAccountError } from '../lib/authErrors';
-import { coupleStreak } from '../lib/streak';
+import { coupleStreak, streakAnchor } from '../lib/streak';
 import { useGrowNotifications, type GrowNotifications } from '../hooks/useNotifications';
 import { REPLY_HUG_ACTION, type GrowNotification } from '../lib/growNotifTypes';
 import {
@@ -439,7 +439,9 @@ function partnerCheckInNotification(entry: CheckIn): GrowNotification {
 }
 
 function normalizeCouple(id: string, data: Partial<Couple>): Couple {
-  const levelXp = data.levelXp ?? 0;
+  // Un-completing a habit sends increment(-10); a room that was already at zero
+  // would otherwise show a negative balance in the shop.
+  const levelXp = Math.max(0, data.levelXp ?? 0);
   return {
     ...SEED_COUPLE,
     ...data,
@@ -517,6 +519,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   >(null);
   const [highFiveCelebrated, setHighFiveCelebrated] = useState<boolean>(false);
   const [selectedDate, setSelectedDate] = useState<string>(getTodayDateString());
+  const [realToday, setRealToday] = useState<string>(getTodayDateString());
   const [isOnline, setIsOnline] = useState<boolean>(
     typeof navigator !== 'undefined' ? navigator.onLine : true
   );
@@ -568,7 +571,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Reminders and news only make sense once this device is inside a shared room;
   // demo mode has no partner to notify.
-  const combinedStreak = coupleStreak(logs, selectedDate);
+  const combinedStreak = coupleStreak(logs, streakAnchor(selectedDate, realToday));
   const notifications = useGrowNotifications({
     ready: !isDemoMode && !!authUser && !!cloudIdentity.coupleId,
     userId: myUid,
@@ -1034,6 +1037,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // A PWA left open across midnight must wake into the new day, otherwise this
+  // device keeps counting the streak from yesterday while the partner's phone
+  // counts from today.
+  useEffect(() => {
+    const refresh = () => setRealToday(getTodayDateString());
+    const timer = window.setInterval(refresh, 60_000);
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
     };
   }, []);
 

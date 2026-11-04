@@ -9,6 +9,7 @@ import { Header } from './components/Header';
 import { BottomNav, NAV_TAB_IDS } from './components/BottomNav';
 import { ReactionToast } from './components/ReactionToast';
 import { SyncStatusBanner } from './components/SyncStatusBanner';
+import { BuildUpdateBanner } from './components/BuildUpdateBanner';
 import { TodayView } from './views/TodayView';
 import { TimerView } from './views/TimerView';
 import { CoupleSimulatorToolbar } from './components/CoupleSimulatorToolbar';
@@ -118,6 +119,8 @@ function MainAppContent() {
         setActiveTab={setActiveTab}
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
+
+      <BuildUpdateBanner />
 
       <ReactionToast />
 
