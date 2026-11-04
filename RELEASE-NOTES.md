@@ -1,62 +1,70 @@
-# GrowTogether v1.2.3 — Tombol tidak lagi menunggu server, dan setiap aksi minta izin dulu
+# GrowTogether v1.2.4 — Kabar pasangan benar-benar sampai, dan memeluk jadi bikin ketagihan
 
-v1.2.2 sudah membuat dua HP memakai angka yang sama. Versi ini membereskan hal
-yang paling sering bikin pengguna panik: aplikasi kelihatan **macet** atau **diam
-saja**. Dua kebiasaan lama jadi penyebabnya — form menunggu akui server sebelum
-boleh ditutup, dan beberapa aksi memakai kotak konfirmasi bawaan browser yang
-tidak bisa ditema, tidak berbahasa Indonesia, dan kadang hilang begitu saja.
+Keluhannya sederhana dan benar: notifikasi tidak pernah muncul di HP, padahal
+pasangan seharusnya tahu kapan kamu mengirim semangat. Ternyata penyebabnya bukan
+jaringan dan bukan Firebase — dialog izin notifikasi pernah diminta oleh halaman
+sebelum ada sentuhan nyata. Chrome Android menjawab `denied` untuk permintaan
+seperti itu, dan penolakan itu permanen sampai pengguna sendiri mengubahnya di
+setelan browser. Sekali terbakar, tidak ada notifikasi yang pernah muncul lagi.
 
 ## Yang berubah
 
-- **Menekan "Simpan habit" tidak mengunci layar lagi.** Selama ini habit sudah
-  muncul di daftar (karena aplikasinya optimistik), tapi dialognya menahan diri
-  sampai server menjawab. Di koneksi lambat itu berarti belasan detik, dan habit
-  kedua yang dibuat di dalamnya ikut hilang. Sekarang tulisan ke server berjalan
-  di latar belakang: dialog menutup seketika, dan kalau server benar-benar menolak,
-  baris sinkronisasi yang memberitahu — bukan tombol yang membeku.
-- **Semua aksi destruktif minta izin lewat dialog aplikasi.** Menghapus habit,
-  menolak/menghapus kesepakatan, memicu sanksi, memakai kartu maaf, keluar dari
-  pasangan, menghapus akun, dan membersihkan salinan lokal kini memunculkan
-  dialog dengan judul, alasan, dan tombol yang jelas. Tidak ada lagi `confirm`
-  bawaan browser.
-- **Satu ketukan = satu tulisan.** Setiap form punya penanda sedang menyimpan,
-  jadi ketukan ganda (yang dulu bikin dua habit kembar, check-in dobel +25 XP,
-  atau saldo XP terpakai dua kali) tidak lagi menghasilkan duplikat.
-- **Catatan sesi fokus kalian kini bisa dibaca pasangan.** Di Pasangan → Ritual
-  Berdua ada kartu baru "Catatan Sesi Fokus Berdua": judul sesi, durasi, dan apa
-  yang kalian pelajari. Sesi dari habit privat tetap tidak pernah muncul di sana.
-- **Sesi pendek diberi tahu dengan kalimat yang benar.** Fokus 40 detik yang tidak
-  dihitung sebelumnya dilaporkan sebagai "sesi belum dimulai" padahal timer sudah
-  jalan. Sekarang pesannya menyebut durasi sebenarnya dan ambang 1 menit, dan
-  suara latar ikut dimatikan.
-- **Kegagalan yang tadinya diam sekarang kelihatan.** Hasil tes notifikasi,
-  notifikasi yang gagal terkirim, dan kegagalan "bersihkan salinan lokal" (yang
-  membuat halaman muat ulang) kini sampai ke bar status, bukan hanya ke konsol.
-- **Kartu maaf ikut kalender.** Jatah 2 kartu per bulan terisi ulang saat bulan
-  berganti tanpa perlu tulisan tambahan, dan usulan tantangan pengganti yang
-  kosong ditolak dengan penjelasan, bukan ditelan diam-diam.
-- **Form lebih ramah pembaca layar.** Label untuk setiap isian, penanda "wajib
-  diisi", `aria-pressed` pada pilihan yang aktif, tombol ikon bernama, dan target
-  sentuh minimal 44 px.
+- **Izin notifikasi hanya diminta lewat sentuhan nyata.** Ada gerbang khusus di
+  layar Pasangan dan tombol "Aktifkan notifikasi" di Pengaturan → Notifikasi untuk
+  setiap state izin: belum pernah ditanya, pernah ditolak (dengan petunjuk letak
+  setelan di Chrome Android dan iPhone), atau tidak didukung browser.
+- **Berhenti berpura-pura.** Dulu aplikasi mengklaim pengingat harian tetap jalan
+  saat HP tertutup. API yang menopang klaim itu (Notification Triggers) sudah
+  dihentikan Chrome, jadi sekarang kartu "Saluran notifikasi perangkat ini"
+  melaporkan keadaan sebenarnya per perangkat, termasuk baris jujur
+  "Kabar saat HP pasangan tertutup → belum — perlu pengirim push dari server".
+- **Tidak ada kabar yang hilang lagi.** Setiap pelukan mencatat `seenAt` oleh
+  penerimanya, sehingga pengirim melihat "Dibuka pasanganmu", dan kabar yang tiba
+  saat HP pasangannya tertutup tetap menunggu di antrean: titik merah di tab
+  "Kita", angka di ikon aplikasi (badge peluncur), lalu langsung disambut begitu
+  aplikasi dibuka lagi.
+- **Menerima kabar sekarang terasa seperti acara.** Layar penuh hujan hati, getar,
+  suara, nama pasangan, pesannya, dan satu tombol "Balas sekarang" yang membalas
+  dalam satu ketukan — bukan toast tiga detik yang mudah dilewat.
+- **Mengirim kabar terasa seperti melepas sesuatu.** Ledakan hati naik dari tombol
+  dengan status "Terkirim · menunggu pasangan membuka" yang berubah hijau menjadi
+  "Dibuka pasanganmu" begitu pasangan membukanya.
+- **Empat chip sekali tekan** di layar Pasangan: 💪 Semangat, 🥺 Kangen, 🎉 Yeay,
+  🤗 Peluk — plus hitungan "N hari ini" dan rantai hari dua arah, supaya mengirim
+  lagi terasa wajar, bukan usaha.
+- Komponen `ReactionToast` dihapus; perayaannya menggantikannya.
 
 ## Cara menguji sendiri
 
-1. Buat dua akun di dua perangkat (HP + browser PC), masuk dengan kode ruang.
-2. Centang sebuah habit sambil membuka mode pesawat selama 2 detik — habit tetap
-   tercentang di HP-mu, dan saat koneksi kembali, HP pasangan ikut berubah.
-3. Ketuk "Simpan habit" dua kali cepat — hanya satu habit yang terbentuk.
-4. Buka Pasangan → Ritual Berdua setelah salah satu menuntaskan timer fokus —
-   catatan sesinya terbaca di kedua perangkat.
+1. Buka aplikasinya di dua HP, masuk dengan kode ruang yang sama.
+2. Di HP pertama: buka **Pasangan**, tekan **Aktifkan notifikasi**, pilih Izinkan
+   pada dialog Chrome. Ulangi di HP kedua.
+3. Tekan chip **💪 Semangat** di HP pertama → hati naik + status "Terkirim".
+4. Di HP kedua (aplikasi sedang di latar) → notifikasi sistem muncul; begitu
+   dibuka, hujan hati + tombol "Balas sekarang".
+5. Kembali ke HP pertama → status berubah jadi "Dibuka pasanganmu", dan di layar
+   Pasangan tertulis "Pelukan terakhirmu sudah dibuka pasangan."
+6. Tutup aplikasi di HP kedua sepenuhnya, kirim **🤗 Peluk** dari HP pertama, lalu
+   buka lagi: pelukan yang tertinggal tetap disambut.
+7. Pengaturan → Notifikasi → "Jejak pengiriman terakhir" mencatat apakah tiap
+   kabar benar-benar tampil atau tidak.
 
 ## Dibuktikan, bukan diasumsikan
 
-Seluruh rilis ini diverifikasi pada dua instance Chrome nyata dengan dua sesi
-Firebase anonim yang berbeda, bicara ke satu server Firestore yang sama:
+Harness dua perangkat nyata di repo (`scripts/qa-two-devices.cjs`): dua Chrome
+dengan profil terpisah, satu emulator Firestore, 13 fase, **109 PASS / 0 FAIL**.
+Yang dibuktikan untuk versi ini antara lain: ledakan di layar pengirim; perayaan
+layar penuh di perangkat penerima saat tab-nya benar-benar di latar; `seenAt`
+tercatat di dokumen server; chip pengirim berubah menjadi "Dibuka pasanganmu";
+notifikasi sistem sungguhan ada di antrean registration perangkat penerima;
+balasan satu ketukan sampai kembali ke pengirim; dan pelukan yang dikirim ketika
+aplikasi pasangan ditutup (halamannya benar-benar dibuang) tetap tampil begitu
+aplikasi dibuka lagi. `scripts/qa-rules.cjs` tetap **60 PASS / 0 FAIL**, termasuk
+aturan yang mengizinkan penerima menulis tanda baca di dokumen reaksi pasangannya.
 
-- Uji dua perangkat (12 fase: masuk & kode ruang, habit & privasi, XP & streak &
-  reaksi, timer fokus, buku/jurnal/check-in, kesepakatan & sanksi lintas
-  perangkat, grace day & hadiah, taman & toko dekorasi, pengaturan, tautan dalam
-  & muat ulang & luring, keluar-lalu-gabung-lagi): **92 PASS / 0 FAIL**.
-- Uji aturan Firestore per dokumen (privasi habit, slot ruang, kode undangan,
-  tanpa login, orang asing): **60 PASS / 0 FAIL**.
-- `tsc --noEmit`, `eslint`, dan `vite build` bersih.
+## Yang masih belum bisa (dan tidak akan diklaim)
+
+Membangunkan HP pasangan yang aplikasinya benar-benar ditutup membutuhkan pengirim
+push dari server (Cloud Functions / Web Push). Proyek Firebase ini memakai paket
+Spark tanpa server, jadi jalur itu tidak ada — aplikasi sekarang mengatakannya
+terbuka-terangan di layar, bukan menjanjikan notifikasi yang tidak pernah datang.
