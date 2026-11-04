@@ -18,6 +18,7 @@ import {
   AlertTriangle,
   RefreshCw,
   UserMinus,
+  Bell,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { ColorTheme } from '../types';
@@ -25,6 +26,8 @@ import { useDialog } from '../hooks/useDialog';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { friendlyAccountError } from '../lib/authErrors';
 import { explainSyncEvent } from '../lib/syncBus';
+import { KIND_LABELS, NOTIFICATION_KIND_ORDER, type NotificationKind } from '../lib/growNotifTypes';
+import type { DeliveryResult, PermissionState } from '../lib/notifications';
 
 const copyText = async (text: string): Promise<boolean> => {
   try {
@@ -65,6 +68,24 @@ const COLOR_THEMES: { id: ColorTheme; label: string; colorClass: string; bgClass
   { id: 'indigo', label: 'Indigo Senja', colorClass: 'text-indigo-500', bgClass: 'bg-indigo-500' },
 ];
 
+const PERMISSION_COPY: Record<PermissionState, string> = {
+  granted: 'Izin sudah diberikan. GrowTogether boleh menampilkan notifikasi di bar ponsel atau desktop kamu.',
+  default:
+    'Belum pernah ditanya. Biasanya izin diminta otomatis begitu kamu masuk ke ruang bersama.',
+  denied:
+    'Izin ditolak sebelumnya. Buka Setelan situs Chrome atau Safari, cari bagian Notifikasi, lalu pilih Izinkan.',
+  unsupported:
+    'Browser ini tidak mendukung notifikasi. Coba pasang aplikasinya dan buka lewat Chrome di Android.',
+};
+
+const TEST_RESULT_COPY: Record<DeliveryResult, string> = {
+  shown: 'Contoh sudah dikirim. Cek bar notifikasi kamu.',
+  duplicate: 'Contoh hari ini sudah pernah dikirim, jadi tidak diulang.',
+  off: 'Notifikasi contoh sedang dimatikan lewat saklar di atas.',
+  denied: 'Izin belum diberikan, jadi tidak ada yang muncul.',
+  unsupported: 'Browser ini tidak bisa menampilkan notifikasi.',
+};
+
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
@@ -95,10 +116,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     rebuildLocalCache,
     habits,
     reactions,
+    notifications,
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<
-    'profile' | 'pair' | 'install' | 'preferences' | 'data' | 'sync'
+    'profile' | 'pair' | 'install' | 'preferences' | 'data' | 'sync' | 'notif'
   >('profile');
   const [syncTest, setSyncTest] = useState<{ ok: boolean; detail: string } | null>(null);
   const [syncTesting, setSyncTesting] = useState(false);
@@ -109,6 +131,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [partnerInputCode, setPartnerInputCode] = useState('');
   const [pairError, setPairError] = useState('');
   const [pairSuccess, setPairSuccess] = useState(false);
+  const [notifTestResult, setNotifTestResult] = useState('');
+
+  const handleNotifTest = async () => {
+    setNotifTestResult(TEST_RESULT_COPY[await notifications.notifyTest()]);
+  };
 
   const [editName, setEditName] = useState(currentUser.displayName);
   const [editTheme, setEditTheme] = useState<ColorTheme>(currentUser.colorTheme);
@@ -140,6 +167,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setAccountError('');
       setPairError('');
       setPairSuccess(false);
+      setNotifTestResult('');
     }
   }, [isOpen, currentUser.id, currentUser.displayName, currentUser.colorTheme]);
 
@@ -396,6 +424,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <span className="w-1.5 h-1.5 rounded-full bg-rose-500" aria-hidden="true" />
               )}
             </span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'notif'}
+            onClick={() => setActiveTab('notif')}
+            className={`min-h-[44px] transition-colors border-b-2 whitespace-nowrap ${
+              activeTab === 'notif'
+                ? 'border-amber-700 text-amber-800 dark:text-amber-300'
+                : 'border-transparent text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100'
+            }`}
+          >
+            Notifikasi
           </button>
           <button
             type="button"
@@ -876,6 +917,125 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <p className="text-[11px] text-stone-500 mt-1 leading-relaxed">
                   Grace day mingguan melindungi streak kalian saat butuh istirahat, dan tidak ada hukuman otomatis yang membuat salah satu merasa bersalah.
                 </p>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'notif' && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40">
+                <div className="flex items-center gap-2">
+                  <Bell className="w-4 h-4 text-amber-700 dark:text-amber-400 shrink-0" aria-hidden="true" />
+                  <h4 className="text-xs font-bold text-amber-900 dark:text-amber-300">
+                    Izin notifikasi
+                  </h4>
+                </div>
+                <p className="text-[11px] text-amber-900/80 dark:text-amber-300/80 mt-1.5 leading-relaxed">
+                  {PERMISSION_COPY[notifications.permission]}
+                </p>
+                {notifications.permission === 'default' && (
+                  <button
+                    type="button"
+                    onClick={() => void notifications.requestPermission()}
+                    className="mt-3 min-h-[44px] px-4 rounded-xl bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700 transition-colors"
+                  >
+                    Izinkan notifikasi
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                {NOTIFICATION_KIND_ORDER.map((kind: NotificationKind) => {
+                  const on = notifications.prefs.enabled[kind];
+                  return (
+                    <div
+                      key={kind}
+                      className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700 flex items-center justify-between gap-3"
+                    >
+                      <div>
+                        <h4 className="text-xs font-bold text-stone-800 dark:text-stone-200">
+                          {KIND_LABELS[kind].title}
+                        </h4>
+                        <p className="text-[11px] text-stone-500 mt-0.5">{KIND_LABELS[kind].hint}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => notifications.setKindEnabled(kind, !on)}
+                        aria-pressed={on}
+                        aria-label={`${KIND_LABELS[kind].title}: ${on ? 'aktif' : 'nonaktif'}`}
+                        className={`shrink-0 min-h-[44px] px-3 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+                          on
+                            ? 'bg-amber-500 text-white'
+                            : 'bg-stone-200 dark:bg-stone-700 text-stone-700 dark:text-stone-300'
+                        }`}
+                      >
+                        {on ? (
+                          <>
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Aktif</span>
+                          </>
+                        ) : (
+                          <>
+                            <EyeOff className="w-3.5 h-3.5" />
+                            <span>Nonaktif</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700 space-y-3">
+                <h4 className="text-xs font-bold text-stone-800 dark:text-stone-200">
+                  Jam pengingat
+                </h4>
+                <div className="flex items-center justify-between gap-3">
+                  <label htmlFor="notif-checkin-at" className="text-[11px] text-stone-600 dark:text-stone-400">
+                    Check-in malam
+                  </label>
+                  <input
+                    id="notif-checkin-at"
+                    type="time"
+                    value={notifications.prefs.checkInAt}
+                    onChange={(e) => notifications.setCheckInAt(e.target.value || '20:30')}
+                    className="min-h-[44px] px-3 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-sm"
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <label htmlFor="notif-habit-at" className="text-[11px] text-stone-600 dark:text-stone-400">
+                    Habit yang belum selesai
+                  </label>
+                  <input
+                    id="notif-habit-at"
+                    type="time"
+                    value={notifications.prefs.habitAt}
+                    onChange={(e) => notifications.setHabitAt(e.target.value || '19:00')}
+                    className="min-h-[44px] px-3 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-sm"
+                  />
+                </div>
+                <p className="text-[11px] text-stone-500 leading-relaxed">
+                  Di Chrome yang memasang aplikasi ini, pengingat tetap muncul walau aplikasi
+                  tertutup. Di browser lain, pengingat menyala selama aplikasinya masih terbuka.
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700">
+                <button
+                  type="button"
+                  onClick={handleNotifTest}
+                  className="min-h-[44px] px-4 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-semibold"
+                >
+                  Kirim notifikasi contoh
+                </button>
+                {notifTestResult && (
+                  <p
+                    role="status"
+                    className="text-[11px] text-stone-600 dark:text-stone-400 mt-2"
+                  >
+                    {notifTestResult}
+                  </p>
+                )}
               </div>
             </div>
           )}

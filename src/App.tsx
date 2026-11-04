@@ -6,7 +6,7 @@
 import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { Header } from './components/Header';
-import { BottomNav } from './components/BottomNav';
+import { BottomNav, NAV_TAB_IDS } from './components/BottomNav';
 import { ReactionToast } from './components/ReactionToast';
 import { SyncStatusBanner } from './components/SyncStatusBanner';
 import { TodayView } from './views/TodayView';
@@ -41,6 +41,11 @@ function TabFallback() {
   );
 }
 
+function readInitialTab(): string {
+  const wanted = new URLSearchParams(window.location.search).get('tab');
+  return wanted && NAV_TAB_IDS.includes(wanted) ? wanted : 'today';
+}
+
 function MainAppContent() {
   const {
     isOnboardingOpen,
@@ -52,7 +57,7 @@ function MainAppContent() {
     currentUser,
     couple,
   } = useApp();
-  const [activeTab, setActiveTab] = useState<string>('today');
+  const [activeTab, setActiveTab] = useState<string>(readInitialTab);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [syncTabSignal, setSyncTabSignal] = useState<number>(0);
   const [timerConfig, setTimerConfig] = useState<{
@@ -63,6 +68,13 @@ function MainAppContent() {
   }>({});
 
   useEffect(() => {
+    // The worker reads ?tab= to tell whether an open window already shows the
+    // screen a notification is about, so the address has to follow the tab.
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('tab') !== activeTab) {
+      url.searchParams.set('tab', activeTab);
+      window.history.replaceState(window.history.state, '', url);
+    }
     window.scrollTo({ top: 0 });
   }, [activeTab]);
 

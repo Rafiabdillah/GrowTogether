@@ -32,6 +32,8 @@ import {
 } from '../data/mockData';
 import { sound } from '../lib/audio';
 import { friendlyAccountError } from '../lib/authErrors';
+import { useGrowNotifications, type GrowNotifications } from '../hooks/useNotifications';
+import { REPLY_HUG_ACTION, type GrowNotification } from '../lib/growNotifTypes';
 import {
   db,
   auth,
@@ -93,6 +95,8 @@ interface AppContextType {
   checkIns: CheckIn[];
   activeNotification: Reaction | null;
   dismissNotification: () => void;
+  // Permission state, reminder clocks and the per-kind switches.
+  notifications: GrowNotifications;
   // Sync diagnostics: every Firestore failure used to land in console.warn only.
   syncEvents: SyncEvent[];
   syncAlert: SyncEvent | null;
@@ -358,13 +362,77 @@ function readPreferredDisplayName(): string {
 
 // A hug that arrived while the phone was closed should still greet the partner
 // on the next open, but a month of history must not.
-const REACTION_NEWS_WINDOW_MS = 24 * 60 * 60 * 1000;
+const NEWS_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-function isFreshReaction(createdAt?: string): boolean {
+function isFreshNews(createdAt?: string): boolean {
   const at = Date.parse(createdAt ?? '');
   if (!Number.isFinite(at)) return false;
   const delta = Date.now() - at;
-  return delta >= 0 && delta < REACTION_NEWS_WINDOW_MS;
+  return delta >= 0 && delta < NEWS_WINDOW_MS;
+}
+
+function whenOf(createdAt?: string): number {
+  const at = Date.parse(createdAt ?? '');
+  return Number.isFinite(at) ? at : Date.now();
+}
+
+function hugNotification(reaction: Reaction): GrowNotification {
+  return {
+    kind: 'hug',
+    title: `${reaction.senderName} mengirim semangat`,
+    body: reaction.message || `${reaction.emoji}${reaction.habitTitle ? ` untuk ${reaction.habitTitle}` : ' untuk kamu'}.`,
+    tag: `gt-hug-${reaction.id}`,
+    tab: 'today',
+    actions: [REPLY_HUG_ACTION],
+    when: whenOf(reaction.createdAt),
+  };
+}
+
+function agreementNotification(agreement: Agreement): GrowNotification {
+  const relief = agreement.pendingAction === 'relief';
+  const swap = agreement.pendingAction === 'swap';
+  return {
+    kind: 'agreement',
+    title: relief || swap ? 'Pasangan menunggu jawabanmu' : 'Kesepakatan menunggu persetujuanmu',
+    body: `${agreement.creatorName || 'Pasangan'}: "${agreement.title}"${agreement.pendingNote ? ` — ${agreement.pendingNote}` : ''}`,
+    tag: `gt-agreement-${agreement.id}`,
+    tab: 'agreements',
+    requireInteraction: true,
+    when: whenOf(agreement.updatedAt || agreement.createdAt),
+  };
+}
+
+// Anything a partner sent was aimed at this account, so a decision that is not
+// theirs to make is not worth waking them for.
+function needsMyDecision(agreement: Agreement, meId: string): boolean {
+  if (agreement.creatorId === meId) return false;
+  if (agreement.status === 'pending_approval' && !agreement.partnerApproved) return true;
+  return !!agreement.pendingAction && agreement.pendingActionBy !== meId;
+}
+
+function journalNotification(entry: JournalEntry): GrowNotification {
+  return {
+    kind: 'journal',
+    title: `Cerita baru dari ${entry.authorName || 'pasanganmu'}`,
+    body: entry.whatWorked || entry.nextWeekGoal || 'Menulis jurnal minggu ini.',
+    tag: `gt-journal-${entry.id}`,
+    tab: 'couple',
+    silent: true,
+    when: whenOf(entry.createdAt),
+  };
+}
+
+function partnerCheckInNotification(entry: CheckIn): GrowNotification {
+  const mood = ['', 'lagi berat', 'agak berat', 'cukup baik', 'menyenangkan', 'luar biasa'][entry.mood] || 'sudah lewat';
+  return {
+    kind: 'checkin',
+    title: `${entry.userName || 'Pasanganmu'} sudah check-in`,
+    body: entry.gratitude ? `Harinya ${mood}. "${entry.gratitude}"` : `Harinya ${mood}.`,
+    tag: `gt-partner-checkin-${entry.id}`,
+    tab: 'couple',
+    silent: true,
+    when: whenOf(entry.createdAt),
+  };
 }
 
 function normalizeCouple(id: string, data: Partial<Couple>): Couple {
@@ -496,6 +564,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     : '';
   const partnerUser: UserProfile | null =
     partnerUid && partnerUid !== myUid ? usersState[partnerUid] ?? null : null;
+
+  // Reminders and news only make sense once this device is inside a shared room;
+  // demo mode has no partner to notify.
+  const notifications = useGrowNotifications({
+    ready: !isDemoMode && !!authUser && !!cloudIdentity.coupleId,
+    userId: myUid,
+    partnerName: partnerUser?.displayName ?? '',
+    habits,
+    logs,
+    sessions,
+    checkins,
+    couple,
+  });
+  const { notify } = notifications;
 
   const clearLocalCollections = () => {
     setHabits([]);
@@ -1147,6 +1229,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       console.warn(`Firestore ${name} snapshot:`, err.message);
     };
+    // One notification per subject: notify() drops anything already delivered
+    // today and skips news the on-screen toast covered while the app was open.
+    const announce = (n: GrowNotification, onceKey: string) => {
+      void notify(n, { onceKey, skipWhenVisible: true });
+    };
 
     // Privacy-aware collections are loaded as two queries — couple-visible docs and
     // the current user's own docs — because Firestore rules cannot express OR.
@@ -1290,6 +1377,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           id: d.id,
         }));
         publishJournals();
+        const news = publicJournals.find((j) => j.authorId !== myUid && isFreshNews(j.createdAt));
+        if (news) announce(journalNotification(news), `journal:${news.id}`);
       },
       report('journals')
     );
@@ -1327,16 +1416,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           // this device has never shown.
           reactionsPrimed.current = true;
           lastNotifiedReactionId.current = latestToMe?.id ?? null;
-          if (latestToMe && latestToMe.id !== readStorage(seenReactionKey) && isFreshReaction(latestToMe.createdAt)) {
+          if (latestToMe && latestToMe.id !== readStorage(seenReactionKey) && isFreshNews(latestToMe.createdAt)) {
             writeStorage(seenReactionKey, latestToMe.id);
             setActiveNotification(latestToMe);
             sound.playReactionSent();
+            announce(hugNotification(latestToMe), `hug:${latestToMe.id}`);
           }
         } else if (latestToMe && latestToMe.id !== lastNotifiedReactionId.current) {
           lastNotifiedReactionId.current = latestToMe.id;
           writeStorage(seenReactionKey, latestToMe.id);
           setActiveNotification(latestToMe);
           sound.playReactionSent();
+          announce(hugNotification(latestToMe), `hug:${latestToMe.id}`);
         }
         setReactions(fetched);
       },
@@ -1352,6 +1443,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }));
         fetched.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
         setAgreements(fetched);
+        const waiting = fetched.find(
+          (a) => needsMyDecision(a, myUid) && isFreshNews(a.updatedAt || a.createdAt)
+        );
+        if (waiting) {
+          announce(
+            agreementNotification(waiting),
+            `agreement:${waiting.id}:${waiting.status}:${waiting.pendingAction ?? 'none'}`
+          );
+        }
       },
       report('agreements')
     );
@@ -1378,6 +1478,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           id: d.id,
         }));
         publishCheckins();
+        const news = publicCheckins.find((c) => c.userId !== myUid && isFreshNews(c.createdAt));
+        if (news) announce(partnerCheckInNotification(news), `partner-checkin:${news.id}`);
       },
       report('checkins')
     );
@@ -1413,7 +1515,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       checkinsPublicUnsub();
       checkinsOwnUnsub();
     };
-  }, [authUser, currentUser.coupleId, myUid]);
+  }, [authUser, currentUser.coupleId, myUid, notify]);
 
   // Every Firestore failure reaches the UI: the newest one as a banner, the
   // recent history in the sync panel.
@@ -1777,6 +1879,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.warn('Firestore sendReaction:', e);
     }
   };
+
+  // "Balas pelukan" on a notification is answered by the worker handing the job to
+  // a running window, because only the page is allowed to write to the room.
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const onAction = (event: MessageEvent) => {
+      const data = event.data as { type?: string; action?: string } | undefined;
+      if (data?.type !== 'gt:action' || data.action !== 'gt-reply-hug') return;
+      void sendReaction('❤️', 'Balas pelukan', 'Balik peluk!');
+    };
+    navigator.serviceWorker.addEventListener('message', onAction);
+    return () => navigator.serviceWorker.removeEventListener('message', onAction);
+  }, [sendReaction]);
 
   // Add Book
   const addBook = async (bookData: Omit<Book, 'id' | 'updatedAt'>) => {
@@ -2575,6 +2690,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     allSanctionsPaused: couple.allSanctionsPaused || false,
     activeNotification,
     dismissNotification,
+    notifications,
     syncEvents,
     syncAlert,
     dismissSyncAlert,

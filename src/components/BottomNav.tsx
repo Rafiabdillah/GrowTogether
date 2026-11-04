@@ -15,6 +15,10 @@ const NAV_ITEMS = [
   { id: 'garden', label: 'Taman', icon: Sprout },
 ];
 
+// A notification deep-links to one of these ids through ?tab=, so the list that
+// answers a tap has to stay the same as the list that renders the bar.
+export const NAV_TAB_IDS = NAV_ITEMS.map((item) => item.id);
+
 export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab }) => {
   return (
     <nav
