@@ -1,73 +1,62 @@
-# GrowTogether v1.2.2 — Kedua HP benar-benar memakai angka yang sama
+# GrowTogether v1.2.3 — Tombol tidak lagi menunggu server, dan setiap aksi minta izin dulu
 
-Versi ini menutup tiga relasi yang di v1.2.1 masih bisa membuat dua HP berbeda
-jawaban untuk ruang yang sama: satu HP bisa diam-diam memakai build lama, streak
-bisa beda angka setelah lewat tengah malam, dan saldo XP bisa tampil negatif yang
-akhirnya memberi dekorasi gratis.
+v1.2.2 sudah membuat dua HP memakai angka yang sama. Versi ini membereskan hal
+yang paling sering bikin pengguna panik: aplikasi kelihatan **macet** atau **diam
+saja**. Dua kebiasaan lama jadi penyebabnya — form menunggu akui server sebelum
+boleh ditutup, dan beberapa aksi memakai kotak konfirmasi bawaan browser yang
+tidak bisa ditema, tidak berbahasa Indonesia, dan kadang hilang begitu saja.
 
-## Yang dibuat
+## Yang berubah
 
-- **HP yang memakai build lama sekarang diberitahu.** Service worker menyiarkan
-  nomornya tiap kali mengambil alih, dan halaman yang masih menjalankan build lama
-  memunculkan baris: **Versi baru v… sudah terpasang — halaman ini masih berjalan
-  pada v…** dengan tombol **Muat ulang** dan tombol tunda. Baris ini hanya muncul
-  kalau build baru benar-benar sudah terpasang, bukan dugaan.
-- **Streak ikut hari nyata, bukan hari saat aplikasi dibuka.** Sebelumnya HP yang
-  dibiarkan terbuka dari kemarin sampai hari berikutnya tetap menghitung streak
-  dari kemarin, sementara HP pasangan menghitung dari hari baru — dua angka untuk
-  ruang yang sama. Sekarang angkanya dijangkar ke hari nyata, dan penyimulasi
-  "maju 1 hari" di mode demo tetap bertingkah seperti hari yang benar-benar lewat.
-- **XP tidak bisa negatif lagi, di tampilan maupun di server.** XP dipakai ganda
-  sebagai poin level dan sebagai uang toko, jadi satu pembatalan habit dari saldo
-  nol menghasilkan angka minus yang membuat semua dekorasi tampak bisa dibuka.
-  Tampilan menjepitnya ke 0, dan aturan Firestore menolak penulisan saldo di bawah
-  0 serta menolak daftar dekorasi diubah menjadi bukan-daftar. Aturan ini sudah
-  dipublikasikan ke proyek `growtogether-rafiabdillah`.
-- **Harness uji runtime ikut ke dalam repo**: `scripts/shop-live.cjs`
-  (`npm run test:runtime`). Jalur emulator/Chrome dibaca dari environment
-  variable (`GT_JDK`, `GT_CLI`, `GT_SYNCTEST`, `GT_CHROME`) dan nomor versi yang
-  dibaca dari `package.json`, jadi ujiannya tidak perlu diedit lagi tiap rilis.
-  Ekspresi yang disuntik ke browser dikompilasi lebih dulu supaya salah ketik
-  kelihatan saat itu juga, bukan setelah bermenit-menit menjalankan emulator.
+- **Menekan "Simpan habit" tidak mengunci layar lagi.** Selama ini habit sudah
+  muncul di daftar (karena aplikasinya optimistik), tapi dialognya menahan diri
+  sampai server menjawab. Di koneksi lambat itu berarti belasan detik, dan habit
+  kedua yang dibuat di dalamnya ikut hilang. Sekarang tulisan ke server berjalan
+  di latar belakang: dialog menutup seketika, dan kalau server benar-benar menolak,
+  baris sinkronisasi yang memberitahu — bukan tombol yang membeku.
+- **Semua aksi destruktif minta izin lewat dialog aplikasi.** Menghapus habit,
+  menolak/menghapus kesepakatan, memicu sanksi, memakai kartu maaf, keluar dari
+  pasangan, menghapus akun, dan membersihkan salinan lokal kini memunculkan
+  dialog dengan judul, alasan, dan tombol yang jelas. Tidak ada lagi `confirm`
+  bawaan browser.
+- **Satu ketukan = satu tulisan.** Setiap form punya penanda sedang menyimpan,
+  jadi ketukan ganda (yang dulu bikin dua habit kembar, check-in dobel +25 XP,
+  atau saldo XP terpakai dua kali) tidak lagi menghasilkan duplikat.
+- **Catatan sesi fokus kalian kini bisa dibaca pasangan.** Di Pasangan → Ritual
+  Berdua ada kartu baru "Catatan Sesi Fokus Berdua": judul sesi, durasi, dan apa
+  yang kalian pelajari. Sesi dari habit privat tetap tidak pernah muncul di sana.
+- **Sesi pendek diberi tahu dengan kalimat yang benar.** Fokus 40 detik yang tidak
+  dihitung sebelumnya dilaporkan sebagai "sesi belum dimulai" padahal timer sudah
+  jalan. Sekarang pesannya menyebut durasi sebenarnya dan ambang 1 menit, dan
+  suara latar ikut dimatikan.
+- **Kegagalan yang tadinya diam sekarang kelihatan.** Hasil tes notifikasi,
+  notifikasi yang gagal terkirim, dan kegagalan "bersihkan salinan lokal" (yang
+  membuat halaman muat ulang) kini sampai ke bar status, bukan hanya ke konsol.
+- **Kartu maaf ikut kalender.** Jatah 2 kartu per bulan terisi ulang saat bulan
+  berganti tanpa perlu tulisan tambahan, dan usulan tantangan pengganti yang
+  kosong ditolak dengan penjelasan, bukan ditelan diam-diam.
+- **Form lebih ramah pembaca layar.** Label untuk setiap isian, penanda "wajib
+  diisi", `aria-pressed` pada pilihan yang aktif, tombol ikon bernama, dan target
+  sentuh minimal 44 px.
 
-## Bukti jalan (43 pemeriksaan hijau, 0 gagal)
+## Cara menguji sendiri
 
-Dua rangkaian pada Chrome asli dan emulator Firestore dengan aturan **asli**:
+1. Buat dua akun di dua perangkat (HP + browser PC), masuk dengan kode ruang.
+2. Centang sebuah habit sambil membuka mode pesawat selama 2 detik — habit tetap
+   tercentang di HP-mu, dan saat koneksi kembali, HP pasangan ikut berubah.
+3. Ketuk "Simpan habit" dua kali cepat — hanya satu habit yang terbentuk.
+4. Buka Pasangan → Ritual Berdua setelah salah satu menuntaskan timer fokus —
+   catatan sesinya terbaca di kedua perangkat.
 
-- Fase aturan (20 pemeriksaan): belanja lewat transaksi oleh kedua anggota, orang
-  asing ditolak baca dan tulis, `increment(+10)` dan transaksi memakai saldo yang
-  sama, lalu tiga penulisan yang harus gagal: saldo `-50`, `increment(-600)` dari
-  saldo 560, dan `unlockedDecorations` jadi teks. Ketiganya `permission-denied`
-  dan dokumennya terbukti tidak berubah; `+10`, saldo 0, dan cuaca tetap lolos.
-- Fase aplikasi (23 pemeriksaan): masuk kode ruang → streak 8 hari hanya dari log
-  bersama; belanja dua dekorasi, 900 → 550 XP, kedua dekorasi tergambar di taman;
-  dengan 100 XP tidak ada item yang bisa dibuka. Lalu tiga relasi baru:
-  - saldo `-50` yang dipaksa di server terbaca **Toko Dekorasi (0 XP)** dan tanda
-    minus tidak muncul di layar;
-  - halaman yang jamnya didorong lewat tengah malam berubah **8 hari → 9 hari**
-  - setelah build kedua dengan nomor lebih tinggi dipasang, baris **Versi baru
-    v9.9.9 … masih berjalan pada v1.2.2** muncul, dan **Muat ulang** dari baris itu
-    benar-benar pindah ke build baru (penanda versi berubah jadi v9.9.9 dan
-    barisnya hilang).
-- `npm run lint` bersih (tsconfig aplikasi + tsconfig worker).
+## Dibuktikan, bukan diasumsikan
 
-## Yang diketahui belum rapi
+Seluruh rilis ini diverifikasi pada dua instance Chrome nyata dengan dua sesi
+Firebase anonim yang berbeda, bicara ke satu server Firestore yang sama:
 
-- XP masih punya dua peran sekaligus (poin level dan uang toko). Aman sekarang,
-  tapi suatu saat sebaiknya dipisah.
-- Kartu joker bulanan, tujuan mingguan, dan pemicu sanksi masih hanya bisa dibaca
-  dari angka mentah — belum ada ringkasannya di layar.
-- Notifikasi nyata antar-perangkat saat aplikasi tertutup (Fase 2) masih menunggu
-  proyek Firebase dipindah ke paket Blaze; yang sekarang jalan pengingat lokal.
-
-## Yang perlu kamu lakukan
-
-1. Buka aplikasi di kedua HP, tutup total, lalu buka lagi supaya build baru
-   terpasang. Kalau salah satu HP masih terbuka, baris **Versi baru** akan muncul
-   di HP itu — tekan **Muat ulang**.
-2. Buka Pengaturan → **Sinkronisasi** dan pastikan keduanya menulis
-   **Versi aplikasi: v1.2.2**.
-3. Kalau kemarin kamu membatalkan habit sampai toko menampilkan angka minus,
-   hari ini tokonya akan menampilkan (0 XP) — itu normal, bukan bug baru.
-
-Berkas: `GrowTogether-1.2.2-web.zip` dan `SHA256SUMS-v1.2.2.txt`
+- Uji dua perangkat (12 fase: masuk & kode ruang, habit & privasi, XP & streak &
+  reaksi, timer fokus, buku/jurnal/check-in, kesepakatan & sanksi lintas
+  perangkat, grace day & hadiah, taman & toko dekorasi, pengaturan, tautan dalam
+  & muat ulang & luring, keluar-lalu-gabung-lagi): **92 PASS / 0 FAIL**.
+- Uji aturan Firestore per dokumen (privasi habit, slot ruang, kode undangan,
+  tanpa login, orang asing): **60 PASS / 0 FAIL**.
+- `tsc --noEmit`, `eslint`, dan `vite build` bersih.
