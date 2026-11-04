@@ -78,16 +78,43 @@ export function markPermissionAsked() {
   writeStorage(PROMPT_KEY, 'true');
 }
 
+/** Chrome for Android silently answers 'denied' when the permission prompt is
+ *  requested without a recent user tap, and v1.2.3 asked from a useEffect — so the
+ *  pair burned their one automatic attempt and never saw a notification again.
+ *  Anything that fires the prompt has to wait for a real interaction. */
+export function hasUserActivation(): boolean {
+  const activation = (navigator as Navigator & { userActivation?: { hasBeenActive?: boolean } })
+    .userActivation;
+  // Browsers without the flag are the desktop ones that accept a page-load prompt.
+  return activation ? activation.hasBeenActive === true : false;
+}
+
 export async function askPermission(): Promise<PermissionState> {
   if (!notificationsSupported()) return 'unsupported';
-  markPermissionAsked();
   if (Notification.permission !== 'default') return Notification.permission;
+  if (!hasUserActivation()) return 'default';
+  markPermissionAsked();
   try {
     return await Notification.requestPermission();
   } catch {
     // Some embedded browsers throw instead of showing nothing at all.
     return Notification.permission;
   }
+}
+
+/** A prompt dismissed as 'denied' cannot be reopened from the page — the browser or
+ *  OS setting has to change first, so the app has to say where that setting is. */
+export function permissionHelp(): string {
+  if (!notificationsSupported()) {
+    return 'Browser ini tidak menampilkan notifikasi sama sekali. Di iPhone, notifikasi hanya hidup pada aplikasi yang sudah dipasang dari Safari → Bagikan → Tambahkan ke Layar Utama.';
+  }
+  if (currentPermission() === 'denied') {
+    return 'Izin notifikasi pernah ditolak, dan hanya browser yang bisa membukanya kembali. Di Chrome Android: setelan aplikasi → Setelan situs → Notifikasi → Izinkan. Di iPhone: Setelan → Safari/Chrome → Notifikasi.';
+  }
+  if (currentPermission() === 'granted') {
+    return 'Izin sudah diberikan. Notifikasi muncul selama aplikasi masih berjalan di latar belakang.';
+  }
+  return 'Belum pernah ditanya. Tekan tombol di bawah lalu pilih Izinkan pada dialog browser.';
 }
 
 export function dayKey(date: Date = new Date()): string {
@@ -223,4 +250,73 @@ export async function cancelReminder(tag: string): Promise<void> {
     }
   }
   postToWorker({ type: 'gt:cancel', tag });
+}
+
+const LOG_KEY = 'gt_notif_log_v1';
+
+export interface DeliveryRecord {
+  kind: NotificationKind;
+  result: DeliveryResult;
+  at: number;
+  title: string;
+}
+
+export function readDeliveryLog(): DeliveryRecord[] {
+  try {
+    const parsed = JSON.parse(readStorage(LOG_KEY) ?? '[]');
+    return Array.isArray(parsed) ? (parsed as DeliveryRecord[]).slice(0, 12) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Whether a notification appeared is invisible from the outside, so every attempt
+ *  is kept for the settings screen to show instead of silence. */
+export function recordDelivery(n: GrowNotification, result: DeliveryResult) {
+  const entry: DeliveryRecord = { kind: n.kind, result, at: Date.now(), title: n.title };
+  writeStorage(LOG_KEY, JSON.stringify([entry, ...readDeliveryLog()].slice(0, 12)));
+}
+
+type BadgeRegistration = ServiceWorkerRegistration & {
+  setAppBadge?: (count?: number) => Promise<void>;
+  clearAppBadge?: () => Promise<void>;
+};
+
+/** A launcher badge is the one cue that survives an ignored notification, so the
+ *  unread count is still visible after the phone goes back in a pocket. */
+export async function setUnreadBadge(count: number): Promise<boolean> {
+  const registration = (await workerRegistration()) as BadgeRegistration | undefined;
+  if (!registration?.setAppBadge) return false;
+  try {
+    if (count > 0) await registration.setAppBadge(count);
+    else await registration.clearAppBadge?.();
+    return true;
+  } catch {
+    // iOS and uninstalled tabs reject badging; the in-app dot still covers it.
+    return false;
+  }
+}
+
+export interface ChannelSnapshot {
+  /** The OS will never show anything: this browser has no Notification API. */
+  apiMissing: boolean;
+  permission: PermissionState;
+  /** A worker controls the page, which is what makes badging and delivery work. */
+  controlled: boolean;
+  standalone: boolean;
+  /** Can this browser raise a reminder with the app fully closed? */
+  offlineReminder: boolean;
+}
+
+export function channelSnapshot(): ChannelSnapshot {
+  const triggerCtor = 'TimestampTrigger';
+  return {
+    apiMissing: !notificationsSupported(),
+    permission: currentPermission(),
+    controlled: !!navigator.serviceWorker?.controller,
+    standalone:
+      window.matchMedia?.('(display-mode: standalone)').matches === true ||
+      (navigator as Navigator & { standalone?: boolean }).standalone === true,
+    offlineReminder: typeof (window as unknown as Record<string, unknown>)[triggerCtor] === 'function',
+  };
 }

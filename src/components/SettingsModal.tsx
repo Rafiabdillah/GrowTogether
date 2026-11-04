@@ -29,6 +29,7 @@ import { explainSyncEvent, friendlyTarget } from '../lib/syncBus';
 import { useConfirm } from './ConfirmDialog';
 import { KIND_LABELS, NOTIFICATION_KIND_ORDER, type NotificationKind } from '../lib/growNotifTypes';
 import type { DeliveryResult, PermissionState } from '../lib/notifications';
+import type { GrowNotifications } from '../hooks/useNotifications';
 
 const copyText = async (text: string): Promise<boolean> => {
   try {
@@ -72,11 +73,11 @@ const COLOR_THEMES: { id: ColorTheme; label: string; colorClass: string; bgClass
 const PERMISSION_COPY: Record<PermissionState, string> = {
   granted: 'Izin sudah diberikan. GrowTogether boleh menampilkan notifikasi di bar ponsel atau desktop kamu.',
   default:
-    'Belum pernah ditanya. Biasanya izin diminta otomatis begitu kamu masuk ke ruang bersama.',
+    'Belum diizinkan. Browser hanya mau menampilkan dialog izin kalau kamu yang menekan tombolnya.',
   denied:
-    'Izin ditolak sebelumnya. Buka Setelan situs Chrome atau Safari, cari bagian Notifikasi, lalu pilih Izinkan.',
+    'Izin ditolak sebelumnya. Buka Setelan situs Chrome atau Setelan iPhone, cari bagian Notifikasi, lalu pilih Izinkan.',
   unsupported:
-    'Browser ini tidak mendukung notifikasi. Coba pasang aplikasinya dan buka lewat Chrome di Android.',
+    'Browser ini tidak mendukung notifikasi. Di iPhone: pasang dari Safari → Tambahkan ke Layar Utama, lalu buka aplikasi itu. Di Android: buka lewat Chrome.',
 };
 
 const TEST_RESULT_COPY: Record<DeliveryResult, string> = {
@@ -86,6 +87,53 @@ const TEST_RESULT_COPY: Record<DeliveryResult, string> = {
   denied: 'Izin belum diberikan, jadi tidak ada yang muncul.',
   unsupported: 'Browser ini tidak bisa menampilkan notifikasi.',
 };
+
+const DELIVERY_LABEL: Record<DeliveryResult, string> = {
+  shown: 'tampil',
+  duplicate: 'sudah pernah',
+  off: 'dimatikan',
+  denied: 'izin belum ada',
+  unsupported: 'browser menolak',
+};
+
+const PERMISSION_SHORT: Record<PermissionState, string> = {
+  granted: 'diizinkan',
+  default: 'belum diminta',
+  denied: 'ditolak',
+  unsupported: 'tidak ada di browser ini',
+};
+
+// Yang boleh dan tidak boleh diharapkan dari perangkat ini, dinyatakan apa adanya.
+function channelRows(notifications: GrowNotifications) {
+  const { channel } = notifications;
+  return [
+    {
+      label: 'Izin notifikasi browser',
+      value: PERMISSION_SHORT[channel.permission],
+      ok: channel.permission === 'granted',
+    },
+    {
+      label: 'Service worker mengendalikan halaman',
+      value: channel.controlled ? 'aktif' : 'belum aktif',
+      ok: channel.controlled,
+    },
+    {
+      label: 'Dipasang sebagai aplikasi',
+      value: channel.standalone ? 'terpasang' : 'masih di tab browser',
+      ok: channel.standalone,
+    },
+    {
+      label: 'Pengingat saat aplikasi tertutup',
+      value: channel.offlineReminder ? 'didukung browser' : 'tidak didukung browser',
+      ok: channel.offlineReminder,
+    },
+    {
+      label: 'Kabar saat HP pasangan tertutup',
+      value: 'belum — perlu pengirim push dari server',
+      ok: false,
+    },
+  ];
+}
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
@@ -989,13 +1037,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <p className="text-[11px] text-amber-900/80 dark:text-amber-300/80 mt-1.5 leading-relaxed">
                   {PERMISSION_COPY[notifications.permission]}
                 </p>
-                {notifications.permission === 'default' && (
+                {notifications.permission !== 'granted' && notifications.permission !== 'denied' && (
                   <button
                     type="button"
                     onClick={() => void notifications.requestPermission()}
                     className="mt-3 min-h-[44px] px-4 rounded-xl bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700 transition-colors"
                   >
-                    Izinkan notifikasi
+                    Aktifkan notifikasi
                   </button>
                 )}
               </div>
@@ -1071,8 +1119,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   />
                 </div>
                 <p className="text-[11px] text-stone-500 leading-relaxed">
-                  Di Chrome yang memasang aplikasi ini, pengingat tetap muncul walau aplikasi
-                  tertutup. Di browser lain, pengingat menyala selama aplikasinya masih terbuka.
+                  Pengingat menyala selama aplikasi masih terbuka atau berjalan di latar belakang.
+                  Browser sudah tidak lagi menyediakan jadwal notifikasi offline, jadi aplikasi yang
+                  benar-benar tertutup tidak bisa mengingatkan sendiri — kabarnya tetap menunggu dan
+                  muncul begitu kamu buka lagi.
                 </p>
               </div>
 
@@ -1104,6 +1154,61 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </p>
                 )}
               </div>
+
+              <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700">
+                <h4 className="text-xs font-bold text-stone-800 dark:text-stone-200">
+                  Saluran notifikasi perangkat ini
+                </h4>
+                <dl className="mt-2 space-y-1.5" data-notif-channel="true">
+                  {channelRows(notifications).map((row) => (
+                    <div key={row.label} className="flex items-start justify-between gap-3">
+                      <dt className="text-[11px] text-stone-500 dark:text-stone-400">{row.label}</dt>
+                      <dd
+                        className={`text-[11px] font-semibold text-right ${
+                          row.ok
+                            ? 'text-emerald-700 dark:text-emerald-300'
+                            : 'text-rose-700 dark:text-rose-300'
+                        }`}
+                      >
+                        {row.value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+
+              {notifications.log.length > 0 && (
+                <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700">
+                  <h4 className="text-xs font-bold text-stone-800 dark:text-stone-200">
+                    Jejak pengiriman terakhir
+                  </h4>
+                  <ul className="mt-2 space-y-1" data-notif-log="true">
+                    {notifications.log.map((entry, index) => (
+                      <li
+                        key={`${entry.at}-${index}`}
+                        className="flex items-start justify-between gap-3 text-[11px]"
+                      >
+                        <span className="text-stone-600 dark:text-stone-400 truncate">
+                          {new Date(entry.at).toLocaleTimeString('id-ID', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}{' '}
+                          — {KIND_LABELS[entry.kind]?.title || entry.kind}: {entry.title}
+                        </span>
+                        <span
+                          className={`shrink-0 font-semibold ${
+                            entry.result === 'shown'
+                              ? 'text-emerald-700 dark:text-emerald-300'
+                              : 'text-stone-500 dark:text-stone-400'
+                          }`}
+                        >
+                          {DELIVERY_LABEL[entry.result]}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
 

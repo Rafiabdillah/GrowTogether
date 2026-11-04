@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import confetti from 'canvas-confetti';
 import { onAuthStateChanged, deleteUser, User } from 'firebase/auth';
 import {
@@ -104,6 +104,10 @@ interface AppContextType {
   checkIns: CheckIn[];
   activeNotification: Reaction | null;
   dismissNotification: () => void;
+  /** Kabar pasangan yang datang tapi belum sempat tampil di layar ini. */
+  newsQueue: Reaction[];
+  hugStats: HugStats;
+  unreadNews: number;
   // Permission state, reminder clocks and the per-kind switches.
   notifications: GrowNotifications;
   // Sync diagnostics: every Firestore failure used to land in console.warn only.
@@ -111,6 +115,8 @@ interface AppContextType {
   syncAlert: SyncEvent | null;
   dismissSyncAlert: () => void;
   lastSentReaction: { emoji: string; at: number; ok: boolean } | null;
+  /** Meledak sesaat setelah pelukan kita dilepas; hilang sendiri. */
+  hugBurst: { emoji: string; at: number } | null;
   partnerUid: string;
   roomCode: string;
   cloudIdentity: { userId: string; coupleId: string };
@@ -410,6 +416,81 @@ function hugNotification(reaction: Reaction): GrowNotification {
   };
 }
 
+// Rows written before receiverId existed carry no addressee; anything a partner
+// sent was aimed at this account.
+function isHugForMe(reaction: Reaction, meId: string): boolean {
+  if (reaction.senderId === meId) return false;
+  return reaction.receiverId ? reaction.receiverId === meId : true;
+}
+
+function dayKeyOf(value: string | number): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+}
+
+// Getaran pendek bikin satu ketukan terasa seperti benar-benar mengirim sesuatu;
+// browser tanpa Vibration API hanya mengabaikannya.
+function buzzHaptic(pattern: number | number[] = [30, 40, 60]) {
+  try {
+    navigator.vibrate?.(pattern);
+  } catch {
+    // Some browsers throw instead of returning false.
+  }
+}
+
+export interface HugStats {
+  /** Pelukan yang perangkat ini kirim hari ini. */
+  todaySent: number;
+  /** Hari berturut-turut di mana kedua pihak sama-sama mengirim semangat. */
+  chainDays: number;
+  /** Kapan pasangan membuka pelukan terakhir kita — tanda mereka benar-benar lihat. */
+  partnerOpenedAt: number | null;
+  /** Berapa detik kita butuh untuk membalas pelukan terakhir mereka. */
+  replyLagSeconds: number | null;
+}
+
+function hugStatsFor(reactions: Reaction[], meId: string): HugStats {
+  const mine = reactions.filter((r) => r.senderId === meId);
+  const toMe = reactions.filter((r) => isHugForMe(r, meId));
+  const today = dayKeyOf(Date.now());
+
+  const sentDays = new Set(mine.map((r) => dayKeyOf(r.createdAt)));
+  const receivedDays = new Set(toMe.map((r) => dayKeyOf(r.createdAt)));
+  let chainDays = 0;
+  // Rantai tetap hidup sepanjang hari ini belum terbalas, jadi dihitung dari
+  // kemarin bila hari ini belum dua arah.
+  const cursor = new Date();
+  if (!sentDays.has(today) || !receivedDays.has(today)) cursor.setDate(cursor.getDate() - 1);
+  for (let guard = 0; guard < 400; guard++) {
+    const key = dayKeyOf(cursor.getTime());
+    if (!sentDays.has(key) || !receivedDays.has(key)) break;
+    chainDays += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  const latestToMe = [...toMe].sort((a, b) => whenOf(b.createdAt) - whenOf(a.createdAt))[0];
+  const reply = latestToMe
+    ? mine
+        .filter((r) => whenOf(r.createdAt) > whenOf(latestToMe.createdAt))
+        .sort((a, b) => whenOf(a.createdAt) - whenOf(b.createdAt))[0]
+    : undefined;
+
+  const openedStamps = mine
+    .map((r) => Date.parse(r.seenAt ?? ''))
+    .filter((at) => Number.isFinite(at));
+
+  return {
+    todaySent: mine.filter((r) => dayKeyOf(r.createdAt) === today).length,
+    chainDays,
+    partnerOpenedAt: openedStamps.length ? Math.max(...openedStamps) : null,
+    replyLagSeconds:
+      reply && latestToMe
+        ? Math.max(0, Math.round((whenOf(reply.createdAt) - whenOf(latestToMe.createdAt)) / 1000))
+        : null,
+  };
+}
+
 function agreementNotification(agreement: Agreement): GrowNotification {
   const relief = agreement.pendingAction === 'relief';
   const swap = agreement.pendingAction === 'swap';
@@ -538,8 +619,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [reactions, setReactions] = useState<Reaction[]>([]);
   const [agreements, setAgreements] = useState<Agreement[]>(saved.agreements ?? SEED_AGREEMENTS);
   const [checkins, setCheckins] = useState<CheckIn[]>(saved.checkins ?? SEED_CHECKINS);
-  const reactionsPrimed = useRef(false);
-  const lastNotifiedReactionId = useRef<string | null>(null);
+  const [newsQueue, setNewsQueue] = useState<Reaction[]>([]);
+  const newsQueueRef = useRef<Reaction[]>([]);
+  newsQueueRef.current = newsQueue;
   const [activeNotification, setActiveNotification] = useState<Reaction | null>(null);
   const [syncEvents, setSyncEvents] = useState<SyncEvent[]>(() => {
     const note = takeStashedSyncNote();
@@ -549,6 +631,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [lastSentReaction, setLastSentReaction] = useState<
     { emoji: string; at: number; ok: boolean } | null
   >(null);
+  const [hugBurst, setHugBurst] = useState<{ emoji: string; at: number } | null>(null);
   const [highFiveCelebrated, setHighFiveCelebrated] = useState<boolean>(false);
   const [selectedDate, setSelectedDate] = useState<string>(getTodayDateString());
   const [realToday, setRealToday] = useState<string>(getTodayDateString());
@@ -604,6 +687,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Reminders and news only make sense once this device is inside a shared room;
   // demo mode has no partner to notify.
   const combinedStreak = coupleStreak(logs, streakAnchor(selectedDate, realToday));
+  const hugStats = hugStatsFor(reactions, myUid);
+  // Yang dihitung adalah kabar yang masih tampil di antrean layar ini, bukan
+  // sekadar seenAt di server: penandanya harus hilang saat kabar ditutup.
+  const unreadNews = newsQueue.length;
   const notifications = useGrowNotifications({
     ready: !isDemoMode && !!authUser && !!cloudIdentity.coupleId,
     userId: myUid,
@@ -614,6 +701,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     checkins,
     couple,
     combinedStreak,
+    unreadNews,
   });
   const { notify } = notifications;
 
@@ -1175,9 +1263,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
       } else if (type === 'REACTION_SENT') {
         setReactions((prev) => [payload, ...prev]);
-        if (payload.receiverId === currentUserId) {
+        if (isHugForMe(payload, currentUserId)) {
+          setNewsQueue((prev) => (prev.some((n) => n.id === payload.id) ? prev : [payload, ...prev]));
           setActiveNotification(payload);
-          sound.playReactionSent();
+          sound.playReactionReceived();
         }
       } else if (type === 'HABIT_ADDED') {
         setHabits((prev) => [...prev, payload]);
@@ -1330,12 +1419,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => unsubs.forEach((unsub) => unsub());
   }, [authUser, currentUser.coupleId, currentUser.id, couple.user1Id, couple.user2Id]);
 
+  // Pelukan yang sudah dibuka dicatat di server, supaya pengirim melihat tanda
+  // terbaca dan kabar yang sama tidak muncul dua kali di perangkat ini.
+  const markHugsSeen = useCallback((ids: string[]) => {
+    const at = new Date().toISOString();
+    ids.forEach((id) => {
+      syncDocInBackground(doc(db, 'reactions', id), { seenAt: at }, { merge: true });
+    });
+  }, []);
+
   // Live couple data: every screen reads from the same real-time collections.
   useEffect(() => {
     const coupleId = currentUser.coupleId;
     if (!authUser || !coupleId) return;
 
-    reactionsPrimed.current = false;
     const byCouple = (name: string) =>
       query(collection(db, name), where('coupleId', '==', coupleId));
     const report = (name: string) => (err: Error) => {
@@ -1526,30 +1623,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       (snapshot) => {
         const fetched: Reaction[] = snapshot.docs.map((d) => ({ ...(d.data() as Reaction), id: d.id }));
         fetched.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-        // Rows written before receiverId existed carry no addressee; anything a
-        // partner sent was aimed at this account.
-        const latestToMe = fetched.find(
-          (r) => (r.receiverId ? r.receiverId === currentUserId : r.senderId !== currentUserId) &&
-            r.senderId !== currentUserId
+        // Kabar pasangan = reaksi yang belum pernah dibuka perangkat ini. seenAt
+        // ditulis oleh penerima, jadi pelukan yang tiba saat HP tertutup tetap
+        // menunggu di antrean sampai benar-benar dilihat, lalu tercatat terbaca.
+        const unseen = fetched.filter(
+          (r) => isHugForMe(r, currentUserId) && !r.seenAt && isFreshNews(r.createdAt)
         );
-        if (!reactionsPrimed.current) {
-          // The first snapshot is history, not news — unless it holds a reaction
-          // this device has never shown.
-          reactionsPrimed.current = true;
-          lastNotifiedReactionId.current = latestToMe?.id ?? null;
-          if (latestToMe && latestToMe.id !== readStorage(seenReactionKey) && isFreshNews(latestToMe.createdAt)) {
-            writeStorage(seenReactionKey, latestToMe.id);
-            setActiveNotification(latestToMe);
-            sound.playReactionSent();
-            announce(hugNotification(latestToMe), `hug:${latestToMe.id}`);
-          }
-        } else if (latestToMe && latestToMe.id !== lastNotifiedReactionId.current) {
-          lastNotifiedReactionId.current = latestToMe.id;
-          writeStorage(seenReactionKey, latestToMe.id);
-          setActiveNotification(latestToMe);
-          sound.playReactionSent();
-          announce(hugNotification(latestToMe), `hug:${latestToMe.id}`);
+        const newest = unseen[0];
+        if (newest && newest.id !== readStorage(seenReactionKey)) {
+          writeStorage(seenReactionKey, newest.id);
+          setNewsQueue((prev) => mergeById(prev, unseen));
+          setActiveNotification(newest);
+          sound.playReactionReceived();
+          announce(hugNotification(newest), `hug:${newest.id}`);
+          markHugsSeen(unseen.map((r) => r.id));
         }
+        // Antrean TIDAK dibuang saat seenAt sudah tercatat di server — tanda baca
+        // itu ditulis oleh perangkat ini sendiri, bukan berarti kabar sudah ditutup.
         setReactions(fetched);
       },
       report('reactions')
@@ -1974,7 +2064,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setReactions((prev) => [reactionObj, ...prev]);
     setLastSentReaction({ emoji, at: Date.now(), ok: true });
-    sound.playReactionSent();
+    setHugBurst({ emoji, at: Date.now() });
+    sound.playHugBurst();
+    buzzHaptic();
+    // Momen paling tepat untuk menanyakan izin notifikasi adalah saat seseorang
+    // justru sedang mengirim kabar: tanpa izin, pelukannya tidak akan membangunkan
+    // HP pasangan. Prompt hanya boleh lahir dari sentuhan nyata.
+    if (notifications.permission === 'default') void notifications.requestPermission();
 
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
       const channel = new BroadcastChannel(SYNC_CHANNEL);
@@ -2707,7 +2803,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await patchCoupleRoom({ allSanctionsPaused: nextVal }, 'allSanctionsPaused');
   };
 
-  const dismissNotification = () => setActiveNotification(null);
+  // Menutup perayaan berarti kabar itu sudah benar-benar dilihat di perangkat ini.
+  // Stabil karena overlay memasang hitungan mundur penutup otomatis sekali per kabar.
+  const dismissNotification = useCallback(() => {
+    const unread = newsQueueRef.current.map((n) => n.id);
+    setNewsQueue([]);
+    setActiveNotification(null);
+    if (unread.length) markHugsSeen(unread);
+  }, [markHugsSeen]);
   const dismissHighFive = () => setHighFiveCelebrated(false);
 
   const value: AppContextType = {
@@ -2740,11 +2843,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     allSanctionsPaused: couple.allSanctionsPaused || false,
     activeNotification,
     dismissNotification,
+    newsQueue,
+    hugStats,
+    unreadNews,
     notifications,
     syncEvents,
     syncAlert,
     dismissSyncAlert,
     lastSentReaction,
+    hugBurst,
     partnerUid,
     roomCode,
     cloudIdentity,

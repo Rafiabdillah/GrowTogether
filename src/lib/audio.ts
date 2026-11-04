@@ -124,6 +124,50 @@ class SoundController {
       // ignore
     }
   }
+
+  private tone(freq: number, startAt: number, length: number, volume: number, type: OscillatorType = 'sine') {
+    if (!this.ctx) return;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, this.ctx.currentTime + startAt);
+    gain.gain.setValueAtTime(0.0001, this.ctx.currentTime + startAt);
+    gain.gain.exponentialRampToValueAtTime(volume, this.ctx.currentTime + startAt + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + startAt + length);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(this.ctx.currentTime + startAt);
+    osc.stop(this.ctx.currentTime + startAt + length + 0.02);
+  }
+
+  // Pelukan yang dilepas: naik dan berdentang, supaya mengirim terasa memberi.
+  playHugBurst() {
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      this.tone(523.25, 0, 0.18, 0.12, 'triangle');
+      this.tone(659.25, 0.08, 0.2, 0.12, 'triangle');
+      this.tone(783.99, 0.17, 0.32, 0.1, 'sine');
+    } catch {
+      // ignore
+    }
+  }
+
+  // Pelukan yang datang: dua nada pendek yang terdengar seperti dipanggil.
+  playHugReceived() {
+    try {
+      this.initCtx();
+      if (!this.ctx) return;
+      this.tone(880, 0, 0.14, 0.1, 'sine');
+      this.tone(1174.66, 0.12, 0.3, 0.09, 'sine');
+    } catch {
+      // ignore
+    }
+  }
+
+  playReactionReceived() {
+    this.playHugReceived();
+  }
 }
 
 export const sound = new SoundController();

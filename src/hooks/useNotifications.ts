@@ -3,15 +3,22 @@ import type { CheckIn, Couple, FocusSession, Habit, HabitLog } from '../types/in
 import {
   askPermission,
   cancelReminder,
+  channelSnapshot,
   currentPermission,
   dayKey,
+  hasUserActivation,
   loadNotifPrefs,
   markShownOnce,
   notificationsSupported,
+  readDeliveryLog,
+  recordDelivery,
   saveNotifPrefs,
   scheduleFutureReminder,
+  setUnreadBadge,
   showGrowNotification,
   shouldAskPermission,
+  type ChannelSnapshot,
+  type DeliveryRecord,
   type DeliveryResult,
   type PermissionState,
 } from '../lib/notifications';
@@ -34,6 +41,8 @@ export interface NotificationInput {
   checkins: CheckIn[];
   couple: Couple;
   combinedStreak: number;
+  /** Partner news this device has not opened yet — drives the launcher badge. */
+  unreadNews: number;
 }
 
 export interface NotifyOptions {
@@ -45,6 +54,8 @@ export interface NotifyOptions {
 export interface GrowNotifications {
   supported: boolean;
   permission: PermissionState;
+  /** The browser can still be asked, but only from a tap the person makes. */
+  needsActivation: boolean;
   prefs: NotifPrefs;
   setKindEnabled: (kind: NotificationKind, on: boolean) => void;
   setCheckInAt: (value: string) => void;
@@ -53,6 +64,9 @@ export interface GrowNotifications {
   notify: (n: GrowNotification, options?: NotifyOptions) => Promise<DeliveryResult>;
   notifyTest: () => Promise<DeliveryResult>;
   lastReminder: { kind: NotificationKind; result: DeliveryResult; at: number } | null;
+  /** The last dozen delivery attempts, shown instead of silence. */
+  log: DeliveryRecord[];
+  channel: ChannelSnapshot;
 }
 
 const STREAK_KEY = 'gt_last_streak_';
@@ -120,11 +134,24 @@ function minutesThisWeek(sessions: FocusSession[], now = new Date()): {
 }
 
 export function useGrowNotifications(input: NotificationInput): GrowNotifications {
-  const { ready, userId, partnerName, habits, logs, sessions, checkins, couple, combinedStreak } =
-    input;
+  const {
+    ready,
+    userId,
+    partnerName,
+    habits,
+    logs,
+    sessions,
+    checkins,
+    couple,
+    combinedStreak,
+    unreadNews,
+  } = input;
   const [prefs, setPrefs] = useState<NotifPrefs>(loadNotifPrefs);
   const [permission, setPermission] = useState<PermissionState>(currentPermission);
   const timers = useRef<Record<string, number>>({});
+  // The one channel the pair still controls: a card they tap so the phone buzzes.
+  const [needsActivation, setNeedsActivation] = useState(false);
+  const [userTouched, setUserTouched] = useState(false);
 
   const supported = notificationsSupported();
 
@@ -132,17 +159,30 @@ export function useGrowNotifications(input: NotificationInput): GrowNotification
     saveNotifPrefs(prefs);
   }, [prefs]);
 
-  // Permission is only worth asking for once the device is actually inside a room,
-  // and never twice on the same device.
+  useEffect(() => {
+    if (userTouched || typeof window === 'undefined') return;
+    const touch = () => setUserTouched(true);
+    window.addEventListener('pointerdown', touch, { once: true, passive: true });
+    window.addEventListener('keydown', touch, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', touch);
+      window.removeEventListener('keydown', touch);
+    };
+  }, [userTouched]);
+
+  // Permission is worth asking for only inside a room, only after the person has
+  // actually touched the screen, and never more than once automatically — a prompt
+  // raised without user activation is answered 'denied' by Chrome for Android.
   useEffect(() => {
     if (!ready || !supported) return;
     if (Notification.permission !== 'default') {
       setPermission(Notification.permission);
       return;
     }
-    if (!shouldAskPermission()) return;
+    setNeedsActivation(true);
+    if (!shouldAskPermission() || !hasUserActivation()) return;
     void askPermission().then(setPermission);
-  }, [ready, supported]);
+  }, [ready, supported, userTouched]);
 
   // Pengingat yang gagal muncul tidak pernah kelihatan: pasangan mengira
   // aplikasinya lupa mengingatkan, padahal browser yang menolak tampilkan.
@@ -151,6 +191,21 @@ export function useGrowNotifications(input: NotificationInput): GrowNotification
     result: DeliveryResult;
     at: number;
   } | null>(null);
+  const [log, setLog] = useState<DeliveryRecord[]>(readDeliveryLog);
+  const [channel, setChannel] = useState<ChannelSnapshot>(channelSnapshot);
+
+  // Which channels can even reach this phone is a fact the pair should see rather
+  // than guess, so it is re-read whenever the tab comes back to the foreground.
+  useEffect(() => {
+    setChannel(channelSnapshot());
+  }, [ready, permission, userTouched]);
+
+  // A badge survives a notification the OS swallowed; the count is the unread
+  // partner news, and clearing it is what opening them does.
+  useEffect(() => {
+    if (!ready) return;
+    void setUnreadBadge(unreadNews);
+  }, [ready, unreadNews]);
 
   const notify = useCallback(
     async (n: GrowNotification, options?: NotifyOptions): Promise<DeliveryResult> => {
@@ -158,6 +213,8 @@ export function useGrowNotifications(input: NotificationInput): GrowNotification
       if (options?.skipWhenVisible && document.visibilityState === 'visible') result = 'off';
       else if (options?.onceKey && !markShownOnce(options.onceKey)) result = 'duplicate';
       else result = await showGrowNotification(n);
+      recordDelivery(n, result);
+      setLog(readDeliveryLog());
       if (n.tag !== 'gt-test') {
         setLastReminder({ kind: n.kind, result, at: Date.now() });
       }
@@ -169,6 +226,7 @@ export function useGrowNotifications(input: NotificationInput): GrowNotification
   const requestPermission = useCallback(async () => {
     const result = await askPermission();
     setPermission(result);
+    if (result === 'granted') setNeedsActivation(false);
     return result;
   }, []);
 
@@ -405,6 +463,7 @@ export function useGrowNotifications(input: NotificationInput): GrowNotification
   return {
     supported,
     permission,
+    needsActivation,
     prefs,
     setKindEnabled,
     setCheckInAt,
@@ -413,5 +472,7 @@ export function useGrowNotifications(input: NotificationInput): GrowNotification
     notify,
     notifyTest,
     lastReminder,
+    log,
+    channel,
   };
 }

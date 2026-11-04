@@ -28,6 +28,16 @@ import { WheelOfFortune } from '../components/WheelOfFortune';
 import { DecorationShopModal } from '../components/DecorationShopModal';
 import { useDialog } from '../hooks/useDialog';
 import { useConfirm } from '../components/ConfirmDialog';
+import { NotificationGate } from '../components/NotificationGate';
+
+// Satu ketukan, langsung terkirim: makin sedikit yang harus diketik, makin sering
+// orang benar-benar mengirim kabar.
+const QUICK_HUGS = [
+  { emoji: '💪', label: 'Semangat', message: 'Kamu pasti bisa hari ini.' },
+  { emoji: '🥺', label: 'Kangen', message: 'Kangen kamu. Selesaikan satu habit ya.' },
+  { emoji: '🎉', label: 'Yeay', message: 'Yeay! Satu langkah lagi lebih dekat.' },
+  { emoji: '🤗', label: 'Peluk', message: 'Peluk jauh, ditunggu kabar baikmu.' },
+];
 
 const getIsoWeek = (date: Date) => {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
@@ -55,6 +65,8 @@ export const CoupleView: React.FC = () => {
     updateJournal,
     deleteJournal,
     sendReaction,
+    hugStats,
+    notifications,
     pairWithCode,
     partnerUid,
     roomCode,
@@ -292,17 +304,62 @@ export const CoupleView: React.FC = () => {
         </div>
 
         {/* Quick Send Love */}
-        <div className="flex items-center gap-2">
-          <button type="button"
-            onClick={() => sendReaction('❤️', 'Cinta & Dukungan', 'Selalu bangga sama kamu!')}
-            disabled={!partnerUid}
-            className="flex items-center gap-1.5 min-h-[44px] px-3.5 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold shadow-xs transition-all active:scale-95"
-          >
-            <Heart className="w-3.5 h-3.5 fill-white" />
-            <span>Kirim Pelukan</span>
-          </button>
+        <div className="flex flex-col items-stretch gap-2 sm:items-end">
+          <div className="flex items-center gap-2">
+            <button type="button"
+              onClick={() => sendReaction('❤️', 'Cinta & Dukungan', 'Selalu bangga sama kamu!')}
+              disabled={!partnerUid}
+              className="flex items-center gap-1.5 min-h-[44px] px-3.5 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold shadow-xs transition-all active:scale-95"
+            >
+              <Heart className="w-3.5 h-3.5 fill-white" />
+              <span>Kirim Pelukan</span>
+            </button>
+            {hugStats.todaySent > 0 && (
+              <span className="text-[11px] font-bold text-rose-600 dark:text-rose-300">
+                {hugStats.todaySent} hari ini
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-1.5 sm:justify-end">
+            {QUICK_HUGS.map((quick) => (
+              <button
+                key={quick.label}
+                type="button"
+                onClick={() => sendReaction(quick.emoji, 'Cinta & Dukungan', quick.message)}
+                disabled={!partnerUid}
+                className="min-h-[44px] px-2.5 rounded-xl bg-white dark:bg-stone-800 border border-rose-200 dark:border-rose-900/50 text-[11px] font-semibold text-stone-700 dark:text-stone-200 disabled:opacity-50 active:scale-95 transition-transform"
+              >
+                <span aria-hidden="true">{quick.emoji}</span> {quick.label}
+              </button>
+            ))}
+          </div>
+
+          {partnerUid && (
+            <p className="text-[11px] text-stone-500 dark:text-stone-400 sm:text-right">
+              {hugStats.chainDays > 0 && `Rantai dua arah ${hugStats.chainDays} hari. `}
+              {hugStats.todaySent > 0 &&
+                (hugStats.partnerOpenedAt !== null &&
+                hugStats.partnerOpenedAt >= Date.now() - 6 * 60 * 60 * 1000
+                  ? 'Pelukan terakhirmu sudah dibuka pasangan.'
+                  : notifications.permission === 'granted'
+                    ? 'Menunggu pasangan membuka — HP-nya akan berbunyi kalau aplikasinya masih hidup.'
+                    : 'Belum ada yang membuka, dan HP pasangan tidak bisa dibangunkan karena izin notifikasi belum aktif.')}
+            </p>
+          )}
         </div>
       </div>
+
+      <NotificationGate />
+
+      {partnerUid && notifications.permission === 'granted' && !notifications.channel.offlineReminder && (
+        <p className="text-[11px] text-stone-500 dark:text-stone-400 -mt-3 leading-relaxed">
+          Catatan jujur: Kabar pasangan muncul sebagai notifikasi selama aplikasinya masih terbuka di
+          latar belakang. Saat aplikasinya benar-benar ditutup, hanya pengirim push dari server yang
+          bisa membangunkan HP — dan itu belum aktif di paket saat ini. Kabar tetap tertahan di
+          antrean dan langsung muncul begitu aplikasi dibuka.
+        </p>
+      )}
 
       {/* Sub Tabs */}
       <div className="flex items-center gap-2 border-b border-stone-200 dark:border-stone-800 pb-2 overflow-x-auto">

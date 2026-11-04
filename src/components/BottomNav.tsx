@@ -1,5 +1,6 @@
 import React from 'react';
 import { CheckCircle2, Timer, BarChart3, Users2, Scale, Sprout } from 'lucide-react';
+import { useApp } from '../context/AppContext';
 
 interface BottomNavProps {
   activeTab: string;
@@ -20,6 +21,7 @@ const NAV_ITEMS = [
 export const NAV_TAB_IDS = NAV_ITEMS.map((item) => item.id);
 
 export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab }) => {
+  const { unreadNews } = useApp();
   return (
     <nav
       aria-label="Navigasi utama"
@@ -29,6 +31,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab })
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
+          const pending = item.id === 'couple' ? unreadNews : 0;
           return (
             <button
               key={item.id}
@@ -38,13 +41,22 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab })
               className="flex flex-col items-center justify-center min-h-[48px] min-w-[44px] py-1"
             >
               <span
-                className={`p-1 rounded-xl transition-colors ${
+                className={`relative p-1 rounded-xl transition-colors ${
                   isActive
                     ? 'text-amber-700 dark:text-amber-300 bg-amber-500/10'
                     : 'text-stone-500 dark:text-stone-400'
                 }`}
               >
                 <Icon className="w-5 h-5" aria-hidden="true" />
+                {pending > 0 && (
+                  <span
+                    data-nav-badge={String(pending)}
+                    className="absolute -top-1 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center"
+                    aria-hidden="true"
+                  >
+                    {pending > 9 ? '9+' : pending}
+                  </span>
+                )}
               </span>
               <span
                 className={`text-[11px] tracking-tight mt-0.5 whitespace-nowrap ${
@@ -54,6 +66,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab })
                 }`}
               >
                 {item.label}
+                {pending > 0 ? ` · ${pending}` : ''}
               </span>
             </button>
           );

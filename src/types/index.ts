@@ -182,6 +182,8 @@ export interface Reaction {
   habitTitle?: string;
   message?: string;
   createdAt: string;
+  /** Set by the receiver's device when the hug was actually opened. */
+  seenAt?: string;
 }
 
 export interface NeuroscienceInsight {

@@ -383,6 +383,24 @@ function phase(name, fn) {
   phases.push({ name, fn });
 }
 
+// dev.wait hanya mengembalikan true/false. Perayaan pelukan menutup dirinya sendiri
+// setelah 9 detik, jadi isinya harus ditangkap pada saat yang sama dengan
+// keberadaannya — bukan dibaca setelahnya.
+async function pollValue(dev, expression, timeoutMs = 60000) {
+  const deadline = Date.now() + timeoutMs;
+  let last = '';
+  for (;;) {
+    try {
+      last = await dev.t(expression);
+      if (last) return last;
+    } catch {
+      last = 'EVALUATE-GAGAL';
+    }
+    if (Date.now() > deadline) return last;
+    await sleep(400);
+  }
+}
+
 // -----------------------------------------------------------------------------
 phase('masuk & pasangan', async () => {
   check('perangkat A membuka layar kode ruang', await A.text('Masuk dengan Kode Ruang', 40000));
@@ -606,19 +624,57 @@ phase('XP, streak, dan reaksi', async () => {
   const visBefore = await B.decoy(true);
   const sentA = await A.clickAria('Kirim reaksi ❤️');
   check('A bisa mengirim reaksi', sentA === 'ok');
-  let reactionDocs = [];
-  const rDeadline = Date.now() + 25000;
-  while (Date.now() < rDeadline) {
-    reactionDocs = (await f.getDocs(f.query(f.collection(dbAdmin, 'reactions'),
-      f.where('coupleId', '==', A.coupleId)))).docs;
-    if (reactionDocs.length > 0) break;
-    await sleep(1000);
-  }
-  const onServer = reactionDocs.length > 0 && reactionDocs.some((d) => d.data().senderId === A.uid);
-  check('reaksi A tersimpan di server ruang', onServer, {
-    jumlah: reactionDocs.length,
-    pengirim: reactionDocs.map((d) => (d.data().senderId || '').slice(0, 8)),
+
+  // Sisi pengirim: mengirim kabar harus TERLIHAT pergi dari tangan, bukan cuma
+  // tombol berkedip. Ledakan + status "Terkirim" adalah umpan yang bikin kirim lagi.
+  const burstChip = await pollValue(A, `(() => { const b = document.querySelector('[data-hug-burst]');
+    return b ? b.innerText.replace(/\\s+/g, ' ').trim().slice(0, 120) : ''; })()`, 20000);
+  check('pengirim melihat ledakan pelukan + status terkirim', /Terkirim|Dibuka/.test(String(burstChip)), { burstChip });
+
+  // Sisi penerima: kabar harus jadi perayaan layar penuh, bukan toast 3 detik.
+  // Perayaan ditangkap bersamaan dengan loop server karena emulator bisa butuh
+  // 15-20 detik untuk satu bolak-balik tulis; kalau menunggu dokumen dulu,
+  // perayaannya sudah menutup diri sebelum sempat dilihat.
+  const [capB, reaksiServer] = await Promise.all([
+    pollValue(B, `(() => { const c = document.querySelector('[data-hug-celebration]'); if (!c) return '';
+      const badge = document.querySelector('[data-nav-badge]');
+      return JSON.stringify({ teks: c.innerText.replace(/\\s+/g, ' ').trim().slice(0, 200),
+        badge: badge ? badge.getAttribute('data-nav-badge') : 'tanpa' }); })()`, 70000),
+    (async () => {
+      // Reaksi sengaja tidak ikut disimpan di localStorage (server satu-satunya
+      // sumber), jadi buktinya dokumen server, bukan gt_state_v1.
+      const deadline = Date.now() + 70000;
+      for (;;) {
+        const docs = (await f.getDocs(f.query(f.collection(dbAdmin, 'reactions'),
+          f.where('coupleId', '==', A.coupleId)))).docs;
+        if (docs.some((d) => d.data().senderId === A.uid) || Date.now() > deadline) return docs;
+        await sleep(1500);
+      }
+    })(),
+  ]);
+  const capBJson = (() => { try { return JSON.parse(capB); } catch { return { teks: String(capB), badge: 'tangkap-gagal' }; } })();
+  check('B mendapat perayaan layar penuh berisi kabar pasangan', /Rafi mengirim pelukan/.test(capBJson.teks), { capB });
+  check('tab "Kita" di perangkat B diberi titik kabar belum dibuka', Number(capBJson.badge) >= 1, { badge: capBJson.badge });
+  check('reaksi A tersimpan di server ruang', reaksiServer.some((d) => d.data().senderId === A.uid), {
+    jumlah: reaksiServer.length,
+    pengirim: reaksiServer.map((d) => (d.data().senderId || '').slice(0, 8)),
   });
+
+  // Tanda baca: penerima menulis seenAt, jadi pengirim tahu pelukannya benar-benar
+  // dibuka — dan kalau tidak, itu bukan salah aplikasinya tapi salah izin HP.
+  let openedAt = '';
+  const oDeadline = Date.now() + 70000;
+  while (Date.now() < oDeadline && !openedAt) {
+    const docs = (await f.getDocs(f.query(f.collection(dbAdmin, 'reactions'),
+      f.where('coupleId', '==', A.coupleId)))).docs;
+    const punyaA = docs.find((d) => d.data().senderId === A.uid);
+    openedAt = punyaA ? (punyaA.data().seenAt || '') : '';
+    if (!openedAt) await sleep(1500);
+  }
+  check('perangkat B mencatat tanda baca "sudah dibuka" di server', !!openedAt, openedAt || 'belum ada seenAt');
+  const chipDibuka = await A.wait(`(() => { const b = document.querySelector('[data-hug-burst]');
+    return !!b && b.innerText.includes('Dibuka pasanganmu'); })()`, 70000);
+  check('layar pengirim berubah menjadi "Dibuka pasanganmu"', chipDibuka, { chip: await A.t(`(() => { const b = document.querySelector('[data-hug-burst]'); return b ? b.innerText.replace(/\\s+/g, ' ').trim() : 'TANPA-BURST'; })()`) });
   await openSettings(B, 'Sinkronisasi');
   const readReCount = () => B.t(`(() => { const el = [...document.querySelectorAll('[role="dialog"] *')].filter(n => n.children.length === 0)
       .find(n => n.textContent.trim() === 'Reaksi tersinkron');
@@ -654,6 +710,91 @@ phase('XP, streak, dan reaksi', async () => {
   // Tab aplikasi harus kembali ke depan sebelum fase berikutnya.
   const visPulih = await B.decoy(false);
   console.log(`DIAG tab B dipulihkan=${JSON.stringify(visPulih)}`);
+});
+
+// Pelukan/semangat adalah alasan orang membuka aplikasi lagi. Fase ini membuktikan
+// seluruh lingkarannya: kirim -> perayaan -> tanda baca -> balasan -> kabar yang
+// tetap sampai walau HP pasangannya sedang tertutup.
+phase('pelukan: balasan & kabar tertinggal', async () => {
+  const goCouple = await A.gotoTab('couple');
+  const chipUp = await A.text('Kirim Pelukan', 25000);
+  check('layar pasangan punya tombol pelukan', goCouple && chipUp, { goCouple, chipUp, where: await A.where() });
+
+  const counter = await A.t(`(() => { const m = document.body.innerText.match(/(\\d+)\\s*hari ini/); return m ? m[1] : ''; })()`);
+  check('pengirim dihitung sudah mengirim berapa pelukan hari ini', Number(counter) >= 1, { counter });
+
+  const gateAbsen = await A.t(`!!document.querySelector('[data-notif-gate]')`);
+  check('gerbang izin notifikasi tidak muncul lagi setelah izin granted', gateAbsen === false, { gateAbsen });
+
+  const channelCard = await (async () => {
+    await openSettings(A, 'Notifikasi');
+    // Kirim notifikasi contoh lewat tombol resmi: kalau saluran ini benar-benar
+    // bisa dipakai, jejak pengiriman harus mencatat hasilnya.
+    const dites = await A.click(A.byText('Kirim notifikasi contoh', '[role="dialog"]'));
+    await sleep(3000);
+    const rows = await A.t(`(() => { const d = document.querySelector('[data-notif-channel]');
+      return d ? d.innerText.replace(/\\s+/g, ' ').trim().slice(0, 600) : 'TANPA-KARTU-SALURAN'; })()`);
+    const log = await A.t(`(() => { const d = document.querySelector('[data-notif-log]');
+      return d ? d.innerText.replace(/\\s+/g, ' ').trim().slice(0, 400) : 'TANPA-JEJAK'; })()`);
+    await closeSettings(A);
+    return { dites, rows, log };
+  })();
+  check('pengaturan menyebut jujur batas pengirim push dari server', /Kabar saat HP pasangan tertutup/.test(channelCard.rows) && /pengirim push/.test(channelCard.rows), channelCard);
+  check('tes notifikasi tercatat di jejak pengiriman perangkat', channelCard.dites === 'ok' && channelCard.log !== 'TANPA-JEJAK', { dites: channelCard.dites, log: channelCard.log });
+
+  // Kirim dari layar pasangan sementara B benar-benar di latar (ponsel dikantongi).
+  await B.decoy(true);
+  const dikirim = await A.click(`[...document.querySelectorAll('button')].find(b => b.textContent.trim().startsWith('💪'))`);
+  check('chip cepat "Semangat" bisa dipakai sekali tekan', dikirim === 'ok', dikirim);
+
+  const bCeleb = await B.wait(`!!document.querySelector('[data-hug-celebration]')`, 30000);
+  const bBody = await B.t(`(() => { const c = document.querySelector('[data-hug-celebration]');
+    return c ? c.innerText.replace(/\\s+/g, ' ').trim().slice(0, 240) : 'TANPA-CELEBRATION'; })()`);
+  check('penerima melihat perayaan walau tab-nya sedang di latar', bCeleb && /Rafi mengirim pelukan/.test(bBody), { bCeleb, bBody });
+
+  // Satu tekan "Balas sekarang" harus langsung membalas dan terbang ke pengirim.
+  const balas = await B.click(`[...document.querySelectorAll('[data-hug-celebration] button')].find(b => b.textContent.trim() === 'Balas sekarang')`);
+  const aCeleb = await A.wait(`(() => { const c = document.querySelector('[data-hug-celebration]');
+    return !!c && c.innerText.includes('Shinta mengirim pelukan'); })()`, 30000);
+  check('balasan satu tekan sampai ke pengirim sebagai perayaan', balas === 'ok' && aCeleb, { balas, aCeleb, where: await A.where() });
+
+  let adaBalasan = false;
+  const bDeadline = Date.now() + 25000;
+  while (Date.now() < bDeadline && !adaBalasan) {
+    const docs = (await f.getDocs(f.query(f.collection(dbAdmin, 'reactions'),
+      f.where('coupleId', '==', A.coupleId)))).docs;
+    adaBalasan = docs.some((d) => d.data().senderId === B.uid && d.data().message === 'Balik peluk!');
+    if (!adaBalasan) await sleep(1500);
+  }
+  check('balasan pasangan tersimpan di server ruang', adaBalasan);
+
+  await A.click(`[...document.querySelectorAll('[data-hug-celebration] button')].find(b => b.textContent.trim() === 'Nanti')`);
+  const dibuka = await A.text('Pelukan terakhirmu sudah dibuka pasangan.', 30000);
+  check('pengirim melihat kabar terbacanya terbuka di layar pasangan', dibuka, { where: await A.where() });
+
+  // Kabar saat aplikasi pasangan sedang TERTUTUP: tidak ada notifikasi yang bisa
+  // ditampilkan, tapi kabar tidak boleh hilang — harus disambut saat dibuka lagi.
+  await B.cdp.send('Page.navigate', { url: 'about:blank' }, B.sid);
+  await sleep(2500);
+  const kirimLagi = await A.click(`[...document.querySelectorAll('button')].find(b => b.textContent.trim().startsWith('🤗'))`);
+  check('chip cepat "Peluk" terkirim ke pasangan yang sedang menutup aplikasi', kirimLagi === 'ok', kirimLagi);
+  let pelukTersimpan = false;
+  const sDeadline = Date.now() + 25000;
+  while (Date.now() < sDeadline) {
+    const docs = (await f.getDocs(f.query(f.collection(dbAdmin, 'reactions'),
+      f.where('coupleId', '==', A.coupleId)))).docs;
+    pelukTersimpan = docs.some((d) => d.data().senderId === A.uid && d.data().emoji === '🤗');
+    if (pelukTersimpan) break;
+    await sleep(1500);
+  }
+  await B.go(`${ORIGIN}/?tab=today`);
+  await B.wait(`(() => { try { const s = JSON.parse(localStorage.getItem('gt_state_v1')||'{}'); return !!(s.couple && s.couple.id); } catch { return false; } })()`, 40000);
+  const recap = await B.wait(`(() => { const c = document.querySelector('[data-hug-celebration]');
+    return !!c && c.innerText.includes('Rafi mengirim pelukan'); })()`, 30000);
+  check('kabar yang tiba saat aplikasi tertutup tetap disambut saat dibuka lagi', recap, { pelukTersimpan, where: await B.where() });
+  await B.click(`[...document.querySelectorAll('[data-hug-celebration] button')].find(b => b.textContent.trim() === 'Nanti')`);
+  await B.decoy(false);
+  await A.gotoTab('today');
 });
 
 phase('timer fokus', async () => {

@@ -7,7 +7,8 @@ import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { Header } from './components/Header';
 import { BottomNav, NAV_TAB_IDS } from './components/BottomNav';
-import { ReactionToast } from './components/ReactionToast';
+import { HugCelebration } from './components/HugCelebration';
+import { HugBurst } from './components/HugBurst';
 import { SyncStatusBanner } from './components/SyncStatusBanner';
 import { BuildUpdateBanner } from './components/BuildUpdateBanner';
 import { TodayView } from './views/TodayView';
@@ -131,7 +132,8 @@ function MainAppContent() {
 
       <BuildUpdateBanner />
 
-      <ReactionToast />
+      <HugCelebration />
+      <HugBurst />
 
       <SyncStatusBanner
         onOpenDiagnostics={() => {
