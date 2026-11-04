@@ -1,5 +1,6 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
+import { readFileSync } from 'fs';
 import path from 'path';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
@@ -7,9 +8,15 @@ import { VitePWA } from 'vite-plugin-pwa';
 export default defineConfig(() => {
   // Override for sub-path hosting (e.g. VITE_BASE_PATH=/GrowTogether/).
   const base = process.env.VITE_BASE_PATH || '/';
+  const version = JSON.parse(
+    readFileSync(path.join(import.meta.dirname, 'package.json'), 'utf8')
+  ).version as string;
 
   return {
     base,
+    // One source of truth for the version the UI shows, so a phone can prove
+    // which build it actually loaded.
+    define: { __APP_VERSION__: JSON.stringify(version) },
     plugins: [
       react(),
       tailwindcss(),

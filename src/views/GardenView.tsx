@@ -28,6 +28,7 @@ const ThreeGarden = lazy(() =>
 export const GardenView: React.FC = () => {
   const {
     couple,
+    combinedStreak,
     logs,
     currentUser,
     partnerUid,
@@ -152,7 +153,7 @@ export const GardenView: React.FC = () => {
           }
         >
           <ThreeGarden
-            streakCount={couple.combinedStreak}
+            streakCount={combinedStreak}
             completedTodayCount={completedTodayUser}
             partnerCompletedTodayCount={completedTodayPartner}
             unlockedDecorations={couple.unlockedDecorations}
@@ -162,7 +163,7 @@ export const GardenView: React.FC = () => {
         </Suspense>
       ) : (
         <Garden2DFallback
-          streakCount={couple.combinedStreak}
+          streakCount={combinedStreak}
           completedTodayUser={completedTodayUser > 0}
           completedTodayPartner={completedTodayPartner > 0}
           timeOfDay={couple.selectedTimeOfDay === 'auto' ? 'day' : couple.selectedTimeOfDay}

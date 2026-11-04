@@ -38,7 +38,6 @@ export const SEED_COUPLE: Couple = {
   user2Id: 'user_shinta_02',
   user1Profile: SEED_USER_A,
   user2Profile: SEED_USER_B,
-  combinedStreak: 14,
   graceDayUsedThisWeek: false,
   weeklyReadingMinutesGoal: 300,
   weeklyStudyMinutesGoal: 200,

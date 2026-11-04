@@ -178,16 +178,48 @@ export const Garden2DFallback: React.FC<Garden2DFallbackProps> = ({
             {completedTodayPartner && <circle cx="12" cy="18" r="4" fill="#FFF" />}
           </g>
 
-          {/* Unlocked Decorations (Swing / Cat / Pond) */}
+          {/* Unlocked Decorations */}
           {unlockedDecorations.includes('swing') && (
             <g transform="translate(150, 120)">
+              <title>Ayunan Kayu Berdua</title>
               <line x1="0" y1="0" x2="0" y2="50" stroke="#8A6548" strokeWidth="1.5" />
               <line x1="20" y1="0" x2="20" y2="50" stroke="#8A6548" strokeWidth="1.5" />
               <rect x="-4" y="50" width="28" height="5" rx="2" fill="#D4A373" />
             </g>
           )}
+          {unlockedDecorations.includes('pond') && (
+            <g transform="translate(76, 214)">
+              <title>Kolam Teratai Berbatu</title>
+              <ellipse cx="24" cy="6" rx="26" ry="9" fill="#6FB6D9" opacity="0.9" />
+              <ellipse cx="24" cy="4" rx="20" ry="6" fill="#9FDBF0" opacity="0.7" />
+              <ellipse cx="14" cy="6" rx="7" ry="3" fill="#4A826B" />
+              <circle cx="33" cy="4" r="2.5" fill="#F4A9C1" />
+            </g>
+          )}
+          {unlockedDecorations.includes('cottage') && (
+            <g transform="translate(296, 186)">
+              <title>Rumah Peri Mungil</title>
+              <rect x="4" y="14" width="22" height="16" rx="2" fill="#D4A373" stroke="#8A6548" strokeWidth="1.2" />
+              <polygon points="0,15 15,0 30,15" fill="#E06D53" stroke="#8A6548" strokeWidth="1.2" />
+              <rect x="12" y="21" width="6" height="9" rx="1" fill="#6B4A2F" />
+              <circle cx="22" cy="20" r="1.8" fill="#FFEDB3" />
+            </g>
+          )}
+          {unlockedDecorations.includes('lanterns') && (
+            <g transform="translate(140, 112)">
+              <title>Lampion Bambu Bercahaya</title>
+              <path d="M 0 0 Q 40 18 88 4" stroke="#8A6548" strokeWidth="1.2" fill="none" />
+              <circle cx="14" cy="8" r="5" fill="#E5A93C" opacity="0.35" />
+              <circle cx="14" cy="8" r="3" fill="#FFD166" />
+              <circle cx="42" cy="15" r="5" fill="#E5A93C" opacity="0.35" />
+              <circle cx="42" cy="15" r="3" fill="#FFD166" />
+              <circle cx="72" cy="9" r="5" fill="#E5A93C" opacity="0.35" />
+              <circle cx="72" cy="9" r="3" fill="#FFD166" />
+            </g>
+          )}
           {unlockedDecorations.includes('cat') && (
             <g transform="translate(225, 202)">
+              <title>Kucing Oren Sahabat Baca</title>
               <circle cx="10" cy="8" r="7" fill="#F4A261" />
               <polygon points="5,3 8,0 10,4" fill="#F4A261" />
               <polygon points="12,4 14,0 17,3" fill="#F4A261" />

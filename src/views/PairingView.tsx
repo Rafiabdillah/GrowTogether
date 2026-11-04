@@ -307,6 +307,10 @@ export const PairingView: React.FC = () => {
             </p>
           )}
         </div>
+
+        <p className="text-center text-[11px] text-stone-500 dark:text-stone-400 mt-5">
+          GrowTogether v{__APP_VERSION__}
+        </p>
       </div>
     </div>
   );

@@ -20,7 +20,7 @@ export const ThreeGarden: React.FC<ThreeGardenProps> = ({
   streakCount,
   completedTodayCount,
   partnerCompletedTodayCount,
-  unlockedDecorations = ['swing', 'cat'],
+  unlockedDecorations = [],
   timeOfDay = 'auto',
   weather = 'clear',
 }) => {

@@ -63,6 +63,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
     partnerUid,
     partnerUser,
     couple,
+    combinedStreak,
     habits,
     logs,
     agreements,
@@ -301,9 +302,12 @@ export const TodayView: React.FC<TodayViewProps> = ({
             }
           >
             <ThreeGarden
-                streakCount={couple?.combinedStreak || 0}
+                streakCount={combinedStreak}
               completedTodayCount={userCompletedCount}
               partnerCompletedTodayCount={partnerCompletedCount}
+              unlockedDecorations={couple?.unlockedDecorations ?? []}
+              timeOfDay={couple?.selectedTimeOfDay ?? 'auto'}
+              weather={couple?.selectedWeather ?? 'clear'}
             />
           </Suspense>
         )}
@@ -395,7 +399,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
 
             <div className="mt-4 flex items-baseline gap-2">
               <span className="text-4xl font-extrabold text-stone-900 dark:text-stone-100 font-mono tabular-nums">
-                {couple?.combinedStreak || 0}
+                {combinedStreak}
               </span>
               <span className="text-xs font-semibold text-stone-600 dark:text-stone-400">hari berturut-turut</span>
             </div>

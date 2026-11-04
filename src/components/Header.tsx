@@ -47,7 +47,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, onOpenS
               GrowTogether
             </span>
             <span className="text-[11px] text-stone-600 dark:text-stone-400 font-medium mt-0.5">
-              Habit Pasangan
+              Habit Pasangan · v{__APP_VERSION__}
             </span>
           </div>
         </div>

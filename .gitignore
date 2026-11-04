@@ -1,6 +1,7 @@
 node_modules/
 build/
 dist/
+dist-emulator/
 release/
 coverage/
 .DS_Store

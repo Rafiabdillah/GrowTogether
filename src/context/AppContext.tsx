@@ -32,6 +32,7 @@ import {
 } from '../data/mockData';
 import { sound } from '../lib/audio';
 import { friendlyAccountError } from '../lib/authErrors';
+import { coupleStreak } from '../lib/streak';
 import { useGrowNotifications, type GrowNotifications } from '../hooks/useNotifications';
 import { REPLY_HUG_ACTION, type GrowNotification } from '../lib/growNotifTypes';
 import {
@@ -85,6 +86,8 @@ interface AppContextType {
   currentUser: UserProfile;
   partnerUser: UserProfile | null;
   couple: Couple;
+  /** Consecutive days the couple completed something, derived from shared logs. */
+  combinedStreak: number;
   habits: Habit[];
   logs: HabitLog[];
   sessions: FocusSession[];
@@ -444,7 +447,6 @@ function normalizeCouple(id: string, data: Partial<Couple>): Couple {
     user1Id: data.user1Id ?? '',
     user2Id: data.user2Id ?? '',
     unlockedDecorations: data.unlockedDecorations ?? [],
-    combinedStreak: data.combinedStreak ?? 0,
     weeklyReadingMinutesGoal: data.weeklyReadingMinutesGoal ?? 300,
     weeklyStudyMinutesGoal: data.weeklyStudyMinutesGoal ?? 200,
     levelXp,
@@ -467,7 +469,6 @@ function emptyCouple(): Couple {
     user2Id: '',
     user1Profile: undefined,
     user2Profile: undefined,
-    combinedStreak: 0,
     levelXp: 0,
     levelNumber: 1,
     unlockedDecorations: [],
@@ -567,6 +568,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Reminders and news only make sense once this device is inside a shared room;
   // demo mode has no partner to notify.
+  const combinedStreak = coupleStreak(logs, selectedDate);
   const notifications = useGrowNotifications({
     ready: !isDemoMode && !!authUser && !!cloudIdentity.coupleId,
     userId: myUid,
@@ -576,6 +578,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     sessions,
     checkins,
     couple,
+    combinedStreak,
   });
   const { notify } = notifications;
 
@@ -2036,7 +2039,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCheckins([]);
     const freshCouple: Couple = {
       ...couple,
-      combinedStreak: 0,
       levelXp: 0,
       levelNumber: 1,
       unlockedDecorations: [],
@@ -2117,7 +2119,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // even after their own profile document is gone.
       roomCode: inviteCode,
       user1Profile: { ...me, inviteCode },
-      combinedStreak: 0,
       graceDayUsedThisWeek: false,
       weeklyReadingMinutesGoal: 300,
       weeklyStudyMinutesGoal: 200,
@@ -2662,6 +2663,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const dismissHighFive = () => setHighFiveCelebrated(false);
 
   const value: AppContextType = {
+    combinedStreak,
     authUser,
     isAuthLoading,
     isProfileLoading,

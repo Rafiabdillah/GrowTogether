@@ -33,6 +33,7 @@ export interface NotificationInput {
   sessions: FocusSession[];
   checkins: CheckIn[];
   couple: Couple;
+  combinedStreak: number;
 }
 
 export interface NotifyOptions {
@@ -118,7 +119,8 @@ function minutesThisWeek(sessions: FocusSession[], now = new Date()): {
 }
 
 export function useGrowNotifications(input: NotificationInput): GrowNotifications {
-  const { ready, userId, partnerName, habits, logs, sessions, checkins, couple } = input;
+  const { ready, userId, partnerName, habits, logs, sessions, checkins, couple, combinedStreak } =
+    input;
   const [prefs, setPrefs] = useState<NotifPrefs>(loadNotifPrefs);
   const [permission, setPermission] = useState<PermissionState>(currentPermission);
   const timers = useRef<Record<string, number>>({});
@@ -217,7 +219,6 @@ export function useGrowNotifications(input: NotificationInput): GrowNotification
       ? { reading: couple.weeklyReadingMinutesGoal - minutes.reading, study: couple.weeklyStudyMinutesGoal - minutes.study }
       : null;
   }, [sessions, couple.weeklyReadingMinutesGoal, couple.weeklyStudyMinutesGoal]);
-  const combinedStreak = couple.combinedStreak;
 
   const clearTimers = () => {
     for (const id of Object.values(timers.current)) window.clearTimeout(id);

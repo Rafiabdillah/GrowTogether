@@ -23,7 +23,6 @@ export interface Couple {
   roomCode?: string;
   user1Profile?: UserProfile;
   user2Profile?: UserProfile;
-  combinedStreak: number;
   graceDayUsedThisWeek: boolean;
   weeklyReadingMinutesGoal: number;
   weeklyStudyMinutesGoal: number;

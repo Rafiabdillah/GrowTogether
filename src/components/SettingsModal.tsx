@@ -210,6 +210,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleCopySyncReport = async () => {
     const report = [
+      `Versi aplikasi: v${__APP_VERSION__}`,
       `Akun: ${authUser?.email ?? '-'} (${cloudIdentity.userId || '-'})`,
       ...syncRows.map((row) => `${row.label}: ${row.value}`),
       ...syncEvents
@@ -755,6 +756,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-2 leading-relaxed">
                   Kalau habit pasangan tidak muncul, bandingkan baris “Ruang bersama” dengan pasanganmu.
                   Dua kode ruang yang berbeda berarti kalian belum benar-benar berpasangan.
+                </p>
+                <p className="text-[11px] font-semibold text-stone-500 dark:text-stone-400 mt-2">
+                  Versi aplikasi: v{__APP_VERSION__}
+                  <span className="font-normal text-stone-400 dark:text-stone-500">
+                    {' '}
+                    — pastikan kedua HP menampilkan versi yang sama
+                  </span>
                 </p>
               </div>
 

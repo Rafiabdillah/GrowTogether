@@ -23,6 +23,7 @@ export const ProgressView: React.FC = () => {
     currentUser,
     partnerUid,
     couple,
+    combinedStreak,
     sessions,
     logs,
     books,
@@ -91,21 +92,21 @@ export const ProgressView: React.FC = () => {
       id: 'streak_7',
       title: '7 Hari Bersama',
       desc: 'Konsisten membangun habit berdua selama 1 minggu penuh',
-      unlocked: couple.combinedStreak >= 7,
+      unlocked: combinedStreak >= 7,
       icon: '🔥',
     },
     {
       id: 'streak_14',
       title: '2 Pekan Harmonis',
       desc: 'Melampaui 14 hari streak tanpa putus',
-      unlocked: couple.combinedStreak >= 14,
+      unlocked: combinedStreak >= 14,
       icon: '✨',
     },
     {
       id: 'streak_30',
       title: '30 Hari Transformasi',
       desc: 'Menempa rutinitas sejati selama 1 bulan',
-      unlocked: couple.combinedStreak >= 30,
+      unlocked: combinedStreak >= 30,
       icon: '👑',
     },
     {
@@ -152,7 +153,7 @@ export const ProgressView: React.FC = () => {
           </div>
           <div className="mt-4 flex items-baseline gap-2">
             <span className="text-4xl font-extrabold text-stone-900 dark:text-stone-100 font-mono tabular-nums">
-              {couple.combinedStreak}
+              {combinedStreak}
             </span>
             <span className="text-xs font-semibold text-stone-600 dark:text-stone-400">
               Hari Berturut-turut
