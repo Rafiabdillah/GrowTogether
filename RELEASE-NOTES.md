@@ -1,79 +1,84 @@
-# GrowTogether v1.2.6 — kabar pasangan sekarang benar-benar bisa membangunkan HP yang tertutup, tanpa server dan tanpa bayar
+# GrowTogether v1.2.7 — Pohon Kita bertambah bagian tiap misi yang tuntas
 
-Permintaan yang menggerakkan dua versi terakhir: notifikasi harus tetap muncul walaupun
-aplikasinya sudah ditutup. Jalur Web Push resmi masih ada dan tetap siap deploy, tapi
-ia menuntut Cloud Functions — dan Cloud Functions menuntut plan Blaze, artinya kartu
-kredit. Versi ini menambahkan jalur yang **benar-benar gratis**: kabar dititip ke satu
-bot Telegram milik kalian berdua, dikirim langsung dari browser pengirim. Tidak ada
-server GrowTogether di tengah, tidak ada yang perlu di-upgrade, dan tidak ada isi
-privat yang ikut keluar.
+Sebelum versi ini, pohon kalian cuma tumbuh dari **streak**: hari tanpa bolong menaikkan
+stage, dan sisanya hanya menyalakan lentera. Akibatnya pasangan yang rajin menyelesaikan
+misi tapi belum panjang streaknya melihat pohon yang sama keringnya dengan yang jarang
+buka aplikasi. Versi ini membuat usaha harian ikut bentuk: **setiap misi yang tuntas
+menumbuhkan satu bagian baru pada pohon**, sampai pohonnya benar-benar lengkap.
+
+## Cara tumbuhnya
+
+Satu misi = satu habit × satu orang × satu hari. Habit privat tidak dihitung, jadi isi
+yang kalian sepakat rahasiakan tidak pernah ikut muncul di pohon pasangan. Ambangnya
+dibuat melebar (1, 3, 6, 10, 15, 21, 28, 36, 45, 55, 70, 90 misi) supaya bagian pertama
+cepat terlihat dan bagian terakhir tetap terasa seperti pencapaian bersama:
+
+| Misi tuntas | Bagian yang tumbuh | Wujudnya |
+| --- | --- | --- |
+| 1 | Akar penyangga | empat akar memeluk tanah |
+| 3 | Lumut batang | lumut hijau di sisi batang |
+| 6 | Ranting samping | dua dahan muda ke kiri dan kanan |
+| 10 | Semak daun muda | gumpalan daun di sepanjang batang |
+| 15 | Bunga krem | kelopak mekar mengelilingi tajuk |
+| 21 | Buah menggantung | butir buah di bawah tajuk |
+| 28 | Sarang dua telur | sarang kecil bertengger di dahan |
+| 36 | Sulur menjuntai | liana panjang menggantung dari dahan |
+| 45 | Jamur di tanah | payung jamur kecil di sekitar akar |
+| 55 | Kunang-kunang | cahaya kecil berputar mengelilingi pohon |
+| 70 | Sepasang burung | dua burung bertengger di puncak |
+| 90 | Mahkota cahaya | lingkar emas di atas tajuk |
+
+Semua bagian dihitung, tidak diacak. Posisi tiap akar, kelopak, dan kunang-kunang
+diturunkan dari rumus (distribusi sudut emas di kulit tajuk), jadi dua ponsel yang
+membuka taman pada saat yang sama melihat pohon yang persis sama — bukan dua versi
+pohon yang kebetulan mirip.
 
 ## Yang berubah
 
-- **Relay Telegram sisi pengirim** (`src/lib/telegramRelay.ts`). Bot dibuat sekali lewat
-  `@BotFather`, token-nya ditempel di kedua HP dan **hanya hidup di localStorage
-  perangkat itu** — tidak pernah ikut tersinkron. `sendMessage` dipanggil sebagai POST
-  `application/x-www-form-urlencoded` supaya tidak memicu preflight CORS (Telegram
-  menjawab 501 untuk itu).
-- **Alamat chat per anggota** (`src/lib/telegramBindings.ts` + koleksi
-  `telegramBindings/{uid}`). Tiap perangkat mengumumkan alamat chat-nya sendiri;
-  pengirim cukup membaca dokumen pasangan untuk tahu ke mana kabar boleh dititip.
-  Aturan Firestore melarang `list` di koleksi ini, jadi menebak-nebak chat id orang
-  lain tetap gagal, dan pasangan satu ruang boleh membaca ikatan kalian (`allow get`).
-- **HP yang sedang digenggam tidak digetarkan.** Perangkat menandai kehadirannya setiap
-  60 detik selama halaman terlihat; kalau pasangan tampak aktif dalam 90 detik
-  terakhir, kabar berhenti di notifikasi in-app saja.
-- **Kabar beruntun dilebur jadi satu pesan.** Jendela 4 detik, jeda 45 detik, maksimal
-  ditahan 3 menit — jadi tiga habit sekaligus tidak mengubah chat kalian jadi spam.
-- **Yang keluar dari ponsel hanya kalimat baku.** `Rafi mengirim pelukan untukmu. Buka
-  GrowTogether untuk melihatnya.` Judul habit, isi jurnal, dan catatan check-in tidak
-  pernah ikut; tes dua perangkat membuktikan teks privat tidak ada di payload.
-- **Kartu "Bangunkan HP pasangan lewat Telegram" di Pengaturan → Notifikasi** yang
-  melaporkan keadaan sebenarnya: pasangan belum memasang, sudah memasang tapi
-  mematikan sakelarnya sendiri, server menolak membaca ikatannya, atau siap dibangunkan
-  lengkap dengan kapan terakhir ia aktif. Token tidak pernah ditampilkan utuh dan bisa
-  ditutup/lepas lagi.
-- **Perbaikan akar: aplikasi bisa "salah ingat" siapa pasangannya.** Saat muat ulang,
-  ruang belum tentu sudah terisi, dan `couple.id` sementara masih berisi data bawaan.
-  Dulu pasangan diambil dari data itu, jadi kabar bisa diam-diam tidak pernah berangkat
-  (atau menunjuk uid yang bukan pasangan di ruang ini). Sekarang identitas pasangan
-  hanya dipercaya kalau dokumen ruang yang sama sudah benar-benar terbaca, dan sekali
-  diketahui ia tidak terlupa selama muat ulang berlangsung.
-- **Status pasangan di kartu sekarang hidup, bukan potret sesaat.** Dulu ikatan pasangan
-  dibaca sekali waktu halaman dibuka, jadi kartu bisa bilang "belum memasang Telegram"
-  berlama-lama padahal pasangan baru saja memasangnya. Sekarang dibaca lewat dua jalur
-  sekaligus: satu pembacaan langsung ke server begitu kartu dibuka (langsung jujur, tanpa
-  menunggu) ditambah langganan realtime yang mengoreksi kartu detik itu juga saat
-  pasangan memasang, melepas, atau mematikan sakelarnya. Baris dari cache lokal dibuang —
-  alamat chat yang basi bisa mengirim pelukan ke HP yang salah.
-- **Semua kegagalan dibaca dari sumbernya, bukan ditebak.** Galat baca ikatan pasangan
-  tidak lagi menyamar sebagai "belum memasang Telegram": ditolak aturan, dokumen belum
-  ada, bentuk tidak lengkap, dan koneksi putus kini punya kalimat masing-masing di
-  kartu. Bot yang menjawab `ok: false` tercatat sebagai ditolak, jaringan mati tercatat
-  sebagai tidak ada jawaban — tidak pernah sebagai terkirim.
+- **`src/lib/treeCraft.ts` (baru)** — daftar 12 bagian plus tiga fungsi murni:
+  `coupleMissionsDone(logs)` menghitung misi tuntas dari log (ganda baris cache+server
+  dihitung sekali, privat dibuang), `openPartIds(m)` dan `nextPart(m)` memutuskan mana
+  yang sudah tumbuh dan apa yang menyusul. Karena semuanya fungsi murni atas data
+  server, angka di layar tidak bisa berbeda antara dua perangkat.
+- **`coupleMissions` ikut dihitung di AppContext** berdampingan dengan `combinedStreak`,
+  dari kumpulan log yang sama, dengan saring privasi yang sama.
+- **Pohon 3D (`src/components/ThreeGarden.tsx`)** — tiap bagian punya geometri sendiri
+  dan menempel ke tajuk yang benar-benar dipakai stage saat ini, jadi bibit setinggi
+  dengkul dan sakura pusaka sama-sama masuk akal. Jamur dan akar sekarang diukur dari
+  lebar tanah (`groundR`): pot bonsai yang sempit tidak lagi kebanjiran jamur, dan
+  tanah bonsai dinaikkan ke permukaan soil supaya tidak ada bagian yang melayang.
+- **Mode 2D aksesibel (`src/components/Garden2DFallback.tsx`)** — bukan tempelan: 12
+  bagian yang sama digambar sebagai SVG, masing-masing ber-`<title>` nama bagian, dan
+  ringkasan untuk pembaca layar menyebut bagian apa saja yang sudah tumbuh, berapa misi
+  yang tuntas, serta berapa misi lagi menuju bagian berikutnya.
+- **Layar Hari Ini** — kartu Pohon Kita sekarang menampilkan legend jujur:
+  `N misi tuntas berdua · X/12 bagian pohon tumbuh · <bagian berikutnya> menyusul
+  setelah M misi lagi`, plus daftar nama bagian yang sudah terbuka.
 
-## Dibuktikan, bukan diklaim
+## Yang diuji
 
-- `npm run test:rules` — aturan asli Firestore diuji per-dokumen lewat
-  rules-unit-testing, termasuk 12 uji ikatan Telegram: menerbitkan atas nama pasangan
-  ditolak, chat id bukan angka ditolak, ikatan menunjuk ruang asing ditolak, `list`
-  tidak tersedia, dan pasangan satu ruang boleh membaca.
-- `npm run test:relay` — modul relay dijalankan di proses Node dengan bot tiruan:
-  bentuk form, penggabungan burst, cooldown, privasi kalimat, pemetaan galat, dan
-  `discoverChat` yang jujur saat belum ada yang menekan `/start`.
-- `npm run test:devices` — dua Chrome nyata, dua perangkat terpisah, terhadap emulator:
-  kedua HP mengikat chat lewat UI, satu HP benar-benar ditutup (`about:blank`), jam
-  kehadirannya dimundurkan, lalu satu tekan 🤗 menghasilkan **tepat satu** `sendMessage`
-  ke chat pasangan dan **nol** ke chat pengirim; dengan pasangan aktif kembali,
-  hasilnya **nol** pesan; pasangan yang mematikan sakelarnya terbaca apa adanya di kartu
-  pengirim.
+Rantai penuh hijau sebelum rilis ini (build produksi + emulator Firestore, dua perangkat
+Chrome nyata, bukan simulasi):
 
-## Memakai jalur ini (sekitar dua menit)
+- `npm run lint` — 0 galat (TS + service worker).
+- `npm run test:tree` — **30 PASS, 0 FAIL**: kurva ambang, satu ambang = tepat satu
+  bagian, tidak ada bagian bocor sebelum ambangnya, misi ganda dari cache tidak dihitung
+  dua kali, dan habit privat tidak menambah bagian.
+- `npm run test:rules` — **86 PASS, 0 FAIL**.
+- `npm run test:relay` — **22 PASS, 0 FAIL**.
+- `npm run test:devices` — **128 PASS, 0 FAIL** (14 fase), termasuk lima cek baru pohon:
+  daftar bagian 2D perangkat A = perangkat B, daftar itu = rumus yang dihitung ulang dari
+  isi database, tulisan mode 3D = mode 2D, satu log privat yang tuntas benar-benar
+  menambah misi di server **tanpa** menambah satu bagian pun, dan legend Hari Ini
+  menyebut angka database + nama bagian berikutnya.
 
-1. Telegram → `@BotFather` → `/newbot` → salin token.
-2. Di **kedua** HP: Pengaturan → Notifikasi → tempel token yang sama → *Simpan token*.
-3. Di masing-masing HP, kirim `/start` ke bot itu, lalu tekan *Deteksi chat saya*.
-4. Tekan *Kirim pesan tes* untuk memastikan jalurnya hidup.
+## Batasan yang perlu kalian tahu
 
-Jalur Web Push (Blaze) tetap tersedia dan tidak berubah: kalau nanti dinyalakan, kedua
-kanal bisa hidup bersamaan dan aturan Firestore-nya sudah sama-sama terbukti.
+- Bagian pohon hanya muncul di tema **Pulau** dan **Bonsai** (dua-duanya di 3D dan di
+  mode 2D). Tema Galaxy dan Meja Belajar punya ceritanya sendiri dan tidak ikut tumbuh —
+  angkanya tetap sama, hanya wujudnya tidak dipasang di sana.
+- Ini hiasan bersama, bukan skor. Yang dihitung adalah habit yang benar-benar ditandai
+  selesai; tidak ada bagian yang bisa "dibeli" atau dinaikkan lewat XP.
+- Setelah 90 misi tuntas, pohon dinyatakan lengkap dan legend berubah menjadi
+  "Pohon kalian sudah lengkap". Bagian tidak pernah hilang kalau streak putus — yang
+  bertahan adalah jejak kerja kalian.
