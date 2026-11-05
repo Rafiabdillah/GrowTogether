@@ -1,70 +1,89 @@
-# GrowTogether v1.2.4 — Kabar pasangan benar-benar sampai, dan memeluk jadi bikin ketagihan
+# GrowTogether v1.2.5 — alamat push perangkat sudah dipasang di aplikasi; pengirimnya tinggal dinyalakan
 
-Keluhannya sederhana dan benar: notifikasi tidak pernah muncul di HP, padahal
-pasangan seharusnya tahu kapan kamu mengirim semangat. Ternyata penyebabnya bukan
-jaringan dan bukan Firebase — dialog izin notifikasi pernah diminta oleh halaman
-sebelum ada sentuhan nyata. Chrome Android menjawab `denied` untuk permintaan
-seperti itu, dan penolakan itu permanen sampai pengguna sendiri mengubahnya di
-setelan browser. Sekali terbakar, tidak ada notifikasi yang pernah muncul lagi.
+Permintaannya: kabar pasangan harus tetap bangun di HP padahal aplikasinya ditutup.
+Jalan satu-satunya yang jujur untuk itu adalah Web Push resmi — browser mendaftarkan
+alamat perangkat ke layanan push, server menyimpan alamat itu, dan pengirimnya harus
+berjalan di luar browser. Versi ini memasang separuh pertama dengan lengkap: aplikasi
+sekarang benar-benar bisa berlangganan, menyimpan alamatnya, memperbaruinya saat
+berputar, dan menghapusnya lagi. Separuh kedua (pengirim di Cloud Functions) sudah
+ditulis dan siap deploy, tapi tertahan satu hal yang bukan kode: proyek Firebase masih
+di plan Spark, dan Secret Manager — tempat kunci VAPID privat disimpan — hanya bisa
+dinyalakan setelah upgrade Blaze.
 
 ## Yang berubah
 
-- **Izin notifikasi hanya diminta lewat sentuhan nyata.** Ada gerbang khusus di
-  layar Pasangan dan tombol "Aktifkan notifikasi" di Pengaturan → Notifikasi untuk
-  setiap state izin: belum pernah ditanya, pernah ditolak (dengan petunjuk letak
-  setelan di Chrome Android dan iPhone), atau tidak didukung browser.
-- **Berhenti berpura-pura.** Dulu aplikasi mengklaim pengingat harian tetap jalan
-  saat HP tertutup. API yang menopang klaim itu (Notification Triggers) sudah
-  dihentikan Chrome, jadi sekarang kartu "Saluran notifikasi perangkat ini"
-  melaporkan keadaan sebenarnya per perangkat, termasuk baris jujur
-  "Kabar saat HP pasangan tertutup → belum — perlu pengirim push dari server".
-- **Tidak ada kabar yang hilang lagi.** Setiap pelukan mencatat `seenAt` oleh
-  penerimanya, sehingga pengirim melihat "Dibuka pasanganmu", dan kabar yang tiba
-  saat HP pasangannya tertutup tetap menunggu di antrean: titik merah di tab
-  "Kita", angka di ikon aplikasi (badge peluncur), lalu langsung disambut begitu
-  aplikasi dibuka lagi.
-- **Menerima kabar sekarang terasa seperti acara.** Layar penuh hujan hati, getar,
-  suara, nama pasangan, pesannya, dan satu tombol "Balas sekarang" yang membalas
-  dalam satu ketukan — bukan toast tiga detik yang mudah dilewat.
-- **Mengirim kabar terasa seperti melepas sesuatu.** Ledakan hati naik dari tombol
-  dengan status "Terkirim · menunggu pasangan membuka" yang berubah hijau menjadi
-  "Dibuka pasanganmu" begitu pasangan membukanya.
-- **Empat chip sekali tekan** di layar Pasangan: 💪 Semangat, 🥺 Kangen, 🎉 Yeay,
-  🤗 Peluk — plus hitungan "N hari ini" dan rantai hari dua arah, supaya mengirim
-  lagi terasa wajar, bukan usaha.
-- Komponen `ReactionToast` dihapus; perayaannya menggantikannya.
+- **Langganan push nyata di aplikasi.** Service worker menangani `push` dan
+  `pushmessage` (termasuk `gt:push-renew` saat layanan push memutar alamat
+  perangkat), alamat beserta `p224` auth dan `p256` applicationServerKey disimpan ke
+  koleksi `pushSubscriptions` atas nama uid perangkat, dan preferensi per jenis kabar
+  ikut terkirim supaya "jangan bangunkan aku untuk jurnal" juga berlaku saat aplikasi
+  tertutup.
+- **Aturan Firestore khusus kotak alamatnya.** `pushSubscriptions` hanya bisa dibaca,
+  ditulis, dan dihapus oleh pemilik uid-nya; `endpoint` wajib benar-benar HTTPS, dan
+  pemindaian kepemilikan memakai pola id yang sama seperti dokumen lain.
+- **Kartu "Kanal push perangkat ini" yang tidak berpura-pura.** Pengaturan → Notifikasi
+  melaporkan salah satu dari: belum ada kunci VAPID di build (server push belum
+  dinyalakan), browser tidak menyediakan `PushManager`, izin belum diberikan, alamat
+  terdaftar, atau percobaan gagal dengan alasannya. Tidak ada lagi keadaan yang tampak
+  siap padahal tidak.
+- **Catatan jujur di layar Pasangan** selama alamat push belum terdaftar: kabar tetap
+  masuk selama aplikasi pasangan terbuka di latar, dan tidak hilang saat tertutup —
+  antreannya menahan sampai aplikasi dibuka lagi.
+- **README: blok "Notifikasi push (aplikasi benar-benar tertutup)"** berisi urutan nyata:
+  upgrade Blaze, buat pasangan kunci VAPID, simpan publiknya di `VITE_VAPID_PUBLIC_KEY`
+  (build) + ketiganya di Secret Manager (server), `deploy --only functions`, dan cara
+  membuktikannya tanpa menyentuh produksi lewat `npm run test:push`. Nilai privat tidak
+  pernah masuk repo; `functions/.env` dan `functions/.secret.local` sudah tertutup
+  `.gitignore`.
 
-## Cara menguji sendiri
+## Yang sengaja belum aktif
 
-1. Buka aplikasinya di dua HP, masuk dengan kode ruang yang sama.
-2. Di HP pertama: buka **Pasangan**, tekan **Aktifkan notifikasi**, pilih Izinkan
-   pada dialog Chrome. Ulangi di HP kedua.
-3. Tekan chip **💪 Semangat** di HP pertama → hati naik + status "Terkirim".
-4. Di HP kedua (aplikasi sedang di latar) → notifikasi sistem muncul; begitu
-   dibuka, hujan hati + tombol "Balas sekarang".
-5. Kembali ke HP pertama → status berubah jadi "Dibuka pasanganmu", dan di layar
-   Pasangan tertulis "Pelukan terakhirmu sudah dibuka pasangan."
-6. Tutup aplikasi di HP kedua sepenuhnya, kirim **🤗 Peluk** dari HP pertama, lalu
-   buka lagi: pelukan yang tertinggal tetap disambut.
-7. Pengaturan → Notifikasi → "Jejak pengiriman terakhir" mencatat apakah tiap
-   kabar benar-benar tampil atau tidak.
+Pengirim push (Cloud Functions + VAPID) belum berjalan di produksi, jadi hari ini HP
+yang benar-benar tertutup masih belum bisa dibangunkan. Rantai kendalanya:
 
-## Dibuktikan, bukan diasumsikan
+```
+plan Spark → secretmanager.googleapis.com tidak bisa dinyalakan
+           → VAPID_PRIVATE_KEY tidak bisa disimpan
+           → functions tidak bisa deploy
+           → tidak ada alamat yang dibangunkan
+```
 
-Harness dua perangkat nyata di repo (`scripts/qa-two-devices.cjs`): dua Chrome
-dengan profil terpisah, satu emulator Firestore, 13 fase, **109 PASS / 0 FAIL**.
-Yang dibuktikan untuk versi ini antara lain: ledakan di layar pengirim; perayaan
-layar penuh di perangkat penerima saat tab-nya benar-benar di latar; `seenAt`
-tercatat di dokumen server; chip pengirim berubah menjadi "Dibuka pasanganmu";
-notifikasi sistem sungguhan ada di antrean registration perangkat penerima;
-balasan satu ketukan sampai kembali ke pengirim; dan pelukan yang dikirim ketika
-aplikasi pasangan ditutup (halamannya benar-benar dibuang) tetap tampil begitu
-aplikasi dibuka lagi. `scripts/qa-rules.cjs` tetap **60 PASS / 0 FAIL**, termasuk
-aturan yang mengizinkan penerima menulis tanda baca di dokumen reaksi pasangannya.
+Begitu proyek naik ke Blaze, sisanya satu tarikan: tulis tiga secret
+(`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`), `deploy --only functions`,
+lalu build ulang dengan `VITE_VAPID_PUBLIC_KEY`. Semua bagiannya sudah disiapkan dan
+sudah teruji terhadap emulator.
 
-## Yang masih belum bisa (dan tidak akan diklaim)
+## Verifikasi
 
-Membangunkan HP pasangan yang aplikasinya benar-benar ditutup membutuhkan pengirim
-push dari server (Cloud Functions / Web Push). Proyek Firebase ini memakai paket
-Spark tanpa server, jadi jalur itu tidak ada — aplikasi sekarang mengatakannya
-terbuka-terangan di layar, bukan menjanjikan notifikasi yang tidak pernah datang.
+- Harness dua perangkat nyata (emulator Firestore + dua Chrome dengan profil terpisah):
+  **111 PASS / 0 FAIL**, 13 fase, termasuk dua cek yang sebelumnya salah ukur — beli
+  dekorasi 200 XP → 700 XP di perangkat lain (database: `levelXp 700`,
+  `unlockedDecorations ["lanterns"]`, layar "Dekorasi terpasang di pulau kalian!") dan
+  cuaca Gerimis (mendarat di server dalam 3,8 detik, tombol yang menyala ikut berubah
+  di kedua layar).
+- Suite aturan produksi (`npm run test:rules`): **74 PASS / 0 FAIL**, empat probe baru
+  menutup tulisan yang selama ini tidak teruji: baris `logs` dari `toggleHabit`, dan
+  `reactions/seenAt` oleh penerima, oleh pengirim, serta ditolak untuk orang luar.
+- Suite jalur push (`npm run test:push`): **28 PASS / 0 FAIL**, termasuk kontrak fungsi
+  `subscribePush` dan granularitas 255 byte.
+- `npm run lint` bersih. Log konsol kedua perangkat di akhir run: kosong (tanpa error
+  maupun warning), dan tidak ada `window.confirm` yang tersisa.
+
+## Perbaikan pada alat ukurnya, bukan aplikasinya
+
+Dua FAIL terakhir ternyata cacat pengukuran, dan memperbaikinya sekaligus membuat
+alasan kegagalan berikutnya bisa dibaca:
+
+- **Jangan baca sekali untuk tulisan latar belakang.** Sekarang isi database dibaca
+  lewat REST emulator dan di-poll sampai mendarat, plus jejak "Log aktivitas sinkron"
+  perangkat sebagai saksi kenapa kalau tidak sampai — bedanya "server menolak" dan
+  "masih dalam perjalanan" jadi terlihat.
+- **Saksi teks yang menyesatkan dibuang.** "Gerimis ada di layar B" selalu benar karena
+  deretan tombol cuaca memang berisi kata itu; yang dibaca sekarang tombol mana yang
+  sedang menyala.
+- **Chrome headless.desktop menghukum tab latar** dengan menunda timer Firestore, jadi
+  tiga bendera anti-throttling dipasang; kasus "ponsel di kantong" tetap diuji lewat
+  `visibilityState` paksa dan notifikasi sistem nyata.
+- **Keheningan tidak boleh lagi berarti menunggu.** Koneksi CDP kini punya batas waktu
+  per perintah dan menolak semua penunggu saat socket putus, jadi harness yang macet
+  melapor sebagai FAIL alih-alih diam berjam-jam.
