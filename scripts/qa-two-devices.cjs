@@ -316,13 +316,15 @@ async function makeDevice(label, cdpPort, width, navWhere, navLabels) {
   })()`);
   dev.click = (locatorExpr) => dev.t(`(() => { const el = ${locatorExpr}; if (!el) return 'TIDAK_ADA_TOMBOL'; el.click(); return 'ok'; })()`);
   // scope berupa selector CSS wadah (mis. '[role="dialog"]'), bukan ekspresi JS.
-  const scope = (css) => (css ? `document.querySelector(${JSON.stringify(css)})` : 'document');
+  // Digabung sebagai keturunan, jadi pencarian di dalam dialog yang belum muncul
+  // mengembalikan tombol kosong alih-alih merusak evaluasi.
+  const buttons = (css) => `document.querySelectorAll(${JSON.stringify(css ? `${css} button` : 'button')})`;
   dev.byText = (text, css) =>
-    `[...(${scope(css)}).querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify(text)})`;
+    `[...${buttons(css)}].find(b => b.textContent.trim() === ${JSON.stringify(text)})`;
   dev.byIncludes = (text, css) =>
-    `[...(${scope(css)}).querySelectorAll('button')].find(b => b.textContent.includes(${JSON.stringify(text)}))`;
+    `[...${buttons(css)}].find(b => b.textContent.includes(${JSON.stringify(text)}))`;
   dev.byAria = (label, css) =>
-    `[...(${scope(css)}).querySelectorAll('button')].find(b => (b.getAttribute('aria-label')||'') === ${JSON.stringify(label)})`;
+    `[...${buttons(css)}].find(b => (b.getAttribute('aria-label')||'') === ${JSON.stringify(label)})`;
   dev.clickText = (text, css) => dev.click(dev.byText(text, css));
   dev.clickIncludes = (text, css) => dev.click(dev.byIncludes(text, css));
   dev.clickAria = (label, css) => dev.click(dev.byAria(label, css));
@@ -399,9 +401,11 @@ async function seedFresh(dev, tabQuery) {
 }
 
 async function openSettings(dev, tabName) {
+  await dev.wait(`!!(${dev.byAria('Buka pengaturan pasangan dan profil')})`, 20000);
   await dev.clickAria('Buka pengaturan pasangan dan profil');
   const up = await dev.text('Pengaturan pasangan', 20000);
   if (up && tabName) {
+    await dev.wait(`!!document.querySelector('[role="dialog"] button[role="tab"]')`, 15000);
     await dev.click(`[...document.querySelectorAll('[role="dialog"] button[role="tab"]')].find(b => b.textContent.includes(${JSON.stringify(tabName)}))`);
   }
   return up;
@@ -781,7 +785,10 @@ phase('XP, streak, dan reaksi', async () => {
   let openedAt = '';
   let reDocs = [];
   let reErr = null;
-  const oDeadline = Date.now() + 70000;
+  // Tanda baca ditulis di latar belakang tanpa menunggu akui server, jadi di mesin
+  // yang sedang penuh ia bisa butuh lebih dari semenit. Yang diuji di sini adalah
+  // "tanda baca akhirnya tercatat", jadi tunggu sampai konvergen — bukan dipercepat.
+  const oDeadline = Date.now() + 150000;
   while (Date.now() < oDeadline && !openedAt) {
     const res = await restDocs('reactions');
     reErr = res.err || null;
@@ -965,6 +972,195 @@ phase('pelukan: balasan & kabar tertinggal', async () => {
   await B.click(`[...document.querySelectorAll('[data-hug-celebration] button')].find(b => b.textContent.trim() === 'Nanti')`);
   await B.decoy(false);
   await A.gotoTab('today');
+});
+
+// relay Telegram diuji terhadap bot TIRUAN di loopback: aplikasi diarahkan ke
+// sana lewat window.__GT_RELAY_API__, yang hanya mau menerima 127.0.0.1/localhost.
+// Tidak ada satu pun pesan QA yang bisa keluar ke Telegram sungguhan.
+phase('relay Telegram: kabar ke HP yang tertutup', async () => {
+  const RELAY_PORT = Number(process.env.GT_RELAY_PORT || 9412);
+  const API_ROOT = `http://127.0.0.1:${RELAY_PORT}`;
+  const TOKEN_QA = '7654321:AAtokenqarelay00000000000000000000000000';
+  const CHAT_A = '-100111223344';
+  const CHAT_B = '-100555666777';
+  const posts = [];
+  const relayStub = http.createServer((req, res) => {
+    let raw = '';
+    req.on('data', (chunk) => { raw += chunk; });
+    req.on('end', () => {
+      const fields = Object.fromEntries(new URLSearchParams(raw).entries());
+      posts.push({ url: req.url, fields, raw });
+      // Yang menekan /start lebih dulu adalah pemilik chat pertama.
+      const giliran = posts.filter((p) => p.url.endsWith('/getUpdates')).length;
+      const chat = giliran === 1 ? { id: CHAT_A, title: 'HP Rafi QA' } : { id: CHAT_B, title: 'HP Shinta QA' };
+      const body = req.url.endsWith('/getUpdates')
+        ? { ok: true, result: [{ update_id: 1, message: { date: 1000, chat } }] }
+        : { ok: true, result: { message_id: posts.length } };
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify(body));
+    });
+  });
+  await new Promise((resolve) => relayStub.listen(RELAY_PORT, '127.0.0.1', resolve));
+
+  const arahkan = (dev) => dev.t(`window.__GT_RELAY_API__ = ${JSON.stringify(API_ROOT)}; 'ok'`);
+  const kartu = (dev) => dev.t(`(() => { const d = document.querySelector('[data-relay-state]');
+    return d ? d.innerText.replace(/\\s+/g, ' ').trim().slice(0, 1400) : 'TANPA-KARTU-RELAY'; })()`);
+  // Jawaban kartu (baris role="status") adalah satu-satunya tempat aplikasi
+  // menceritakan alasan gagal — jangan sampai terpotong oleh slice kartu.
+  const jawaban = (dev) => dev.t(`(() => { const d = document.querySelector('[data-relay-state] [role="status"]');
+    return d ? d.innerText.replace(/\\s+/g, ' ').trim() : 'TANPA-JAWABAN'; })()`);
+  const chipPeluk = `[...document.querySelectorAll('button')].find(b => b.textContent.trim().startsWith('🤗'))`;
+  // Muat ulang perangkat + arahkan ke bot tiruan + tunggu chip pelukan siap.
+  const siapKirim = async (dev) => {
+    await dev.go(`${ORIGIN}/?tab=couple`);
+    await dev.wait(`(() => { try { const s = JSON.parse(localStorage.getItem('gt_state_v1')||'{}'); return !!(s.couple && s.couple.id); } catch { return false; } })()`, 40000);
+    await dev.closeDialogs();
+    const ada = await dev.wait(`!!(${chipPeluk})`, 30000);
+    await arahkan(dev);
+    return ada;
+  };
+  // Mengikat chat lewat UI sungguhan: tempel token -> simpan -> deteksi chat.
+  const ikatTelegram = async (dev) => {
+    await arahkan(dev);
+    await openSettings(dev, 'Notifikasi');
+    const ada = await dev.t(`!!document.querySelector('[data-relay-state]')`);
+    await dev.fill(`document.querySelector('#relay-token')`, TOKEN_QA);
+    const simpan = await dev.clickText('Simpan token', `[role="dialog"]`);
+    await sleep(500);
+    const deteksi = await dev.clickText('Deteksi chat saya', `[role="dialog"]`);
+    const siap = await dev.wait(`(() => { const d = document.querySelector('[data-relay-status]');
+      return !!d && /terhubung ke/.test(d.innerText); })()`, 25000);
+    const teks = await kartu(dev);
+    const jawab = await jawaban(dev);
+    await closeSettings(dev);
+    return { ada, simpan, deteksi, siap, teks, jawab };
+  };
+  const ikatanServer = async (uid) => {
+    const d = await f.getDoc(f.doc(dbAdmin, 'telegramBindings', uid));
+    return d.exists() ? d.data() : null;
+  };
+  // Baris pasangan di kartu baru berarti setelah bacaan servernya benar-benar
+  // selesai, jadi tunggu penandanya sebelum membaca teks — dan sebelum menekan
+  // chip, karena pengirim tidak akan mengirim apa pun tanpa ikatan terbaca.
+  const kartuSiap = async (dev) => {
+    await openSettings(dev, 'Notifikasi');
+    const terbaca = await dev.wait(
+      `(() => { const d = document.querySelector('[data-relay-partner]');
+        return !!d && d.getAttribute('data-relay-partner') === 'siap'; })()`,
+      25000
+    );
+    const partner = await dev.t(`(() => { const d = document.querySelector('[data-relay-partner]');
+      return d ? d.getAttribute('data-relay-partner') : 'TANPA-BARIS'; })()`);
+    const teks = await kartu(dev);
+    await closeSettings(dev);
+    return { terbaca, partner, teks };
+  };
+
+  try {
+    const ikatA = await ikatTelegram(A);
+    check('kartu relay muncul di Pengaturan dan chat A bisa diikat lewat UI',
+      ikatA.ada === true && ikatA.simpan === 'ok' && ikatA.deteksi === 'ok' && ikatA.siap, ikatA);
+    const ikatB = await ikatTelegram(B);
+    check('perangkat pasangan bisa mengikat chatnya dengan cara yang sama', ikatB.siap, ikatB);
+
+    const ikatanA = await ikatanServer(A.uid);
+    const ikatanB = await ikatanServer(B.uid);
+    check('ikatan chat mendarat di server dengan bentuk yang dipakai pengirim',
+      !!ikatanA && ikatanA.chatId === CHAT_A && ikatanA.coupleId === A.coupleId && ikatanA.enabled === true
+        && !!ikatanB && ikatanB.chatId === CHAT_B,
+      { A: ikatanA, B: ikatanB });
+    check('dua perangkat terikat ke dua chat yang berbeda',
+      !!ikatanA && !!ikatanB && ikatanA.chatId !== ikatanB.chatId,
+      { chatA: ikatanA && ikatanA.chatId, chatB: ikatanB && ikatanB.chatId });
+
+    const lihat1 = await kartuSiap(A);
+    // Kalau kartu bilang pasangan belum pasang, bedakan " Aplikasinya memang
+    // belum membaca apa-apa" dari "yang dibaca uid yang salah": bawa identitas
+    // ruang yang tersimpan di perangkat A sebagai saksi.
+    const saksiA = await A.t(`(() => { try { const s = JSON.parse(localStorage.getItem('gt_state_v1')||'{}');
+      const c = s.couple || {}; return { id: c.id || '', u1: c.user1Id || '', u2: c.user2Id || '' }; }
+      catch (e) { return { galat: String(e) }; } })()`);
+    check('kartu pengirim melihat HP pasangan benar-benar siap dibangunkan',
+      lihat1.partner === 'siap' && /bisa dibangunkan/.test(lihat1.teks),
+      { ...lihat1, harusnya: { pasangan: B.uid, ruang: A.coupleId }, Alihat: saksiA });
+
+    // B menutup aplikasinya, lalu jam kehadirannya dimundurkan — setara dua menit
+    // berlalu tanpa menunggu dua menit di dunia nyata.
+    await B.cdp.send('Page.navigate', { url: 'about:blank' }, B.sid);
+    await sleep(1500);
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await f.setDoc(f.doc(ctx.firestore(), 'telegramBindings', B.uid), { seenAt: Date.now() - 120000 }, { merge: true });
+    });
+
+    const siapSatu = await siapKirim(A);
+    const lihat2 = await kartuSiap(A);
+    posts.length = 0;
+    const peluk = await A.click(chipPeluk);
+    let terbangun = false;
+    const rDeadline = Date.now() + 30000;
+    while (Date.now() < rDeadline) {
+      terbangun = posts.some((p) => p.url.endsWith('/sendMessage') && p.fields.chat_id === CHAT_B);
+      if (terbangun) break;
+      await sleep(1500);
+    }
+    const keluar = posts.filter((p) => p.url.endsWith('/sendMessage'));
+    const teksKabar = keluar.length ? String(keluar[0].fields.text) : '';
+    check('pelukan membangunkan HP pasangan lewat relay walau aplikasinya tertutup',
+      peluk === 'ok' && terbangun, { peluk, siapSatu, partner: lihat2.partner, teksKabar, jumlah: keluar.length });
+    check('yang keluar hanya kalimat baku tanpa isi privat',
+      keluar.length === 1 && /mengirim pelukan untukmu/.test(teksKabar) && !/QA|Olahar|Termodinamika/.test(teksKabar),
+      { teksKabar, jumlah: keluar.length });
+    check('pengirim tidak membangunkan dirinya sendiri',
+      !keluar.some((p) => p.fields.chat_id === CHAT_A), keluar.map((p) => p.fields.chat_id));
+
+    // B kembali menggenggam HP-nya: kabar cukup lewat notifikasi di layar, bukan getar.
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await f.setDoc(f.doc(ctx.firestore(), 'telegramBindings', B.uid), { seenAt: Date.now() }, { merge: true });
+    });
+    const siapDua = await siapKirim(A);
+    posts.length = 0;
+    const pelukLagi = await A.click(chipPeluk);
+    await sleep(12000);
+    const waktuAktif = posts.filter((p) => p.url.endsWith('/sendMessage'));
+    check('pasangan yang sedang aktif tidak dibangunkan lewat Telegram',
+      siapDua && pelukLagi === 'ok' && waktuAktif.length === 0, { pelukLagi, siapDua, keluar: waktuAktif.map((p) => p.fields.text) });
+
+    // Pasangan memilih tidak lagi dibangunkan, lewat sakelarnya sendiri.
+    await B.go(`${ORIGIN}/?tab=today`);
+    await B.wait(`(() => { try { const s = JSON.parse(localStorage.getItem('gt_state_v1')||'{}'); return !!(s.couple && s.couple.id); } catch { return false; } })()`, 40000);
+    await B.closeDialogs();
+    await arahkan(B);
+    await openSettings(B, 'Notifikasi');
+    const sakelar = await B.click(`[...document.querySelectorAll('[data-relay-state] input[type="checkbox"]')][0]`);
+    // Menyimpan sakelar berarti menulis ke server dulu, jadi kartunya baru berubah
+    // setelah tulisan itu diakui — di mesin yang penuh bisa beberapa detik. Tunggu
+    // sampai baris statusnya benar-benar berubah, jangan baca pada jam sekian buta.
+    const konvergen = await B.wait(`(() => { const d = document.querySelector('[data-relay-status]');
+      return !!d && /sedang dimatikan/.test(d.innerText); })()`, 25000);
+    const statusB = await B.t(`(() => { const d = document.querySelector('[data-relay-status]');
+      return d ? d.innerText.replace(/\\s+/g, ' ').trim().slice(0, 400) : 'TANPA-STATUS'; })()`);
+    await closeSettings(B);
+    check('pasangan bisa mematikan bangunannya dari sakelar sendiri',
+      sakelar === 'ok' && /sedang dimatikan/.test(statusB), { sakelar, konvergen, statusB });
+
+    const siapTiga = await siapKirim(A);
+    const menolak = await kartuSiap(A);
+    check('ikatan yang dimatikan pasangan terbaca apa adanya di kartu pengirim',
+      siapTiga && menolak.terbaca && /tidak dibangunkan|memilih/i.test(menolak.teks), { siapTiga, ...menolak });
+
+    // Bersih-bersih: token dan ikatan QA dihapus supaya fase sesudahnya tidak
+    // lagi mencoba mengirim ke bot tiruan yang akan ditutup.
+    for (const dev of [A, B]) {
+      await dev.t(`localStorage.removeItem('gt_relay_token_v1'); localStorage.removeItem('gt_relay_link_v1'); localStorage.removeItem('gt_relay_trail_v1'); 'ok'`);
+      await testEnv.withSecurityRulesDisabled(async (ctx) => {
+        await f.deleteDoc(f.doc(ctx.firestore(), 'telegramBindings', dev.uid));
+      });
+    }
+    const sisa = [await ikatanServer(A.uid), await ikatanServer(B.uid)];
+    check('jejak relay QA dibersihkan dari server dan perangkat', sisa.every((x) => x === null), sisa);
+  } finally {
+    relayStub.close();
+  }
 });
 
 phase('timer fokus', async () => {

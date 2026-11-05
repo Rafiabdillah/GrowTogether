@@ -135,6 +135,45 @@ npm run test:push     # emulator firestore+auth+functions + layanan push tiruan
 Tanpa langkah di atas aplikasi tetap berjalan: kabar masuk saat aplikasi terbuka,
 dan kabar yang datang saat tertutup tetap disambut di antrean begitu dibuka lagi.
 
+## Jalur gratis: bangunkan HP pasangan lewat bot Telegram
+
+Tidak mau naik ke Blaze? Kabar untuk HP yang tertutup bisa dititip ke **satu bot
+Telegram milik kalian sendiri** — tanpa server GrowTogether sama sekali, karena
+`sendMessage` adalah POST biasa yang boleh dipanggil langsung dari browser.
+
+Cara pasang (sekitar dua menit, dilakukan masing-masing di HP-nya):
+
+1. Di Telegram, buka `@BotFather` → `/newbot` → salin token yang muncul.
+2. Tempel token yang **sama** di kedua HP: Pengaturan → Notifikasi → *Simpan token*.
+3. Di tiap HP, kirim `/start` ke bot itu, lalu tekan *Deteksi chat saya*.
+4. Kalau mau, tekan *Kirim pesan tes* untuk membuktikan jalurnya hidup.
+
+Yang disimpan di server hanyalah `telegramBindings/{uid}` berisi alamat chat,
+nama chat, sakelar izin, dan jam terakhir HP itu aktif. **Token tidak pernah keluar
+dari perangkatnya** (localStorage saja, tidak ikut tersinkron) dan aturan Firestore
+melarang `list` di koleksi ini, jadi menebak alamat chat orang lain tetap gagal.
+
+Dua hal yang sengaja dilakukan pengirim:
+
+- **Tidak ada isi privat yang keluar.** Yang dikirim hanya kalimat baku, misalnya
+  `Rafi mengirim pelukan untukmu. Buka GrowTogether untuk melihatnya.` — judul habit,
+  isi jurnal dan catatan check-in tetap tinggal di ruang kalian.
+- **HP yang sedang digenggam tidak digetarkan.** Tiap perangkat menandai kehadirannya
+  setiap 60 detik; kalau pasangan terlihat aktif dalam 90 detik terakhir, kabar cukup
+  lewat notifikasi di layar. Kabar beruntun dalam empat detik dilebur jadi satu pesan,
+  lalu ada jeda 45 detik supaya Telegram tidak membanjiri chat kalian.
+
+Semua kartu di Pengaturan melaporkan keadaan sebenarnya: pasangan belum memasang,
+sudah memasang tapi mematikan sakelarnya, server menolak membaca, atau siap dibangunkan
+beserta kapan terakhir ia aktif. Baris pasangan dibaca langsung dari server saat kartu
+dibuka lalu diikuti secara realtime, jadi keadaan yang berubah di HP pasangan ikut
+berubah di kartu tanpa muat ulang.
+
+```bash
+npm run test:relay    # bot tiruan di 127.0.0.1: kalimat, antrian, privasi, galat
+npm run test:devices  # dua browser nyata: kabar benar-benar keluar saat HP tertutup
+```
+
 ## Deploy ke GitHub Pages
 
 Build untuk subpath `/GrowTogether/` lalu dorong isi `dist/` ke branch `gh-pages`:

@@ -34,6 +34,7 @@ import { sound } from '../lib/audio';
 import { friendlyAccountError } from '../lib/authErrors';
 import { coupleStreak, streakAnchor } from '../lib/streak';
 import { useGrowNotifications, type GrowNotifications } from '../hooks/useNotifications';
+import { useTelegramRelay, type TelegramRelayApi } from '../hooks/useTelegramRelay';
 import { REPLY_HUG_ACTION, type GrowNotification } from '../lib/growNotifTypes';
 import {
   db,
@@ -111,6 +112,8 @@ interface AppContextType {
   unreadNews: number;
   // Permission state, reminder clocks and the per-kind switches.
   notifications: GrowNotifications;
+  // Jalur kabar kedua: bot Telegram milik kalian, untuk HP yang sedang tertutup.
+  relay: TelegramRelayApi;
   // Sync diagnostics: every Firestore failure used to land in console.warn only.
   syncEvents: SyncEvent[];
   syncAlert: SyncEvent | null;
@@ -676,12 +679,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // The room's own code is the one both partners can use to return; a member who
   // joined with the code has no invite code of their own pointing at the room.
   const roomCode = couple.roomCode || currentUser.inviteCode || '';
-  // The room document is the authority on who the partner is; their profile may
-  // not have arrived from Firestore yet, and reactions must not depend on it.
-  const roomIsMine = !cloudIdentity.coupleId || couple.id === cloudIdentity.coupleId;
-  const partnerUid = roomIsMine
-    ? (couple.user1Id === myUid ? couple.user2Id : couple.user1Id) || ''
-    : '';
+  // The room document is the authority on who the partner is, and it is only
+  // authoritative once it is actually loaded: while the snapshot is still on its
+  // way this state still holds seed/demo data, and trusting that would hand the
+  // relay a partner who does not exist in this room. Their profile may arrive
+  // later — reactions and kabar must not wait for it.
+  const roomLoaded = !!cloudIdentity.coupleId && couple.id === cloudIdentity.coupleId;
+  const strictPartner =
+    roomLoaded && myUid
+      ? (couple.user1Id === myUid ? couple.user2Id : couple.user1Id) || ''
+      : '';
+  const partnerCache = useRef<{ room: string; uid: string }>({ room: '', uid: '' });
+  if (partnerCache.current.room !== cloudIdentity.coupleId) {
+    partnerCache.current = { room: cloudIdentity.coupleId, uid: '' };
+  }
+  if (strictPartner) partnerCache.current.uid = strictPartner;
+  const partnerUid = strictPartner || (roomLoaded ? '' : partnerCache.current.uid);
   const partnerUser: UserProfile | null =
     partnerUid && partnerUid !== myUid ? usersState[partnerUid] ?? null : null;
 
@@ -705,6 +718,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     unreadNews,
   });
   const { notify } = notifications;
+
+  // Kabar yang tak sempat dilihat di layar harus tetap sampai ke HP pasangan yang
+  // tertutup. Relay Telegram memegang jalur itu; tidak ada konten yang ikut keluar.
+  const relay = useTelegramRelay({
+    ready: !isDemoMode && !!authUser && !!cloudIdentity.coupleId,
+    userId: myUid,
+    coupleId: cloudIdentity.coupleId,
+    partnerUid,
+    senderName: currentUser.displayName,
+  });
 
   const clearLocalCollections = () => {
     setHabits([]);
@@ -1936,6 +1959,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     syncDocInBackground(doc(db, 'logs', logId), updatedLog, { merge: true });
 
+    // Habit privat tidak pernah menjadi kabar; yang lain cukup diketahui
+    // pasangannya sebagai "satu habit selesai", tanpa judul ikut terkirim.
+    if (newCompleted && !habit.isPrivate) relay.announce('habit');
+
     await addCoupleXP(newCompleted ? 10 : -10);
   };
 
@@ -2085,6 +2112,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     syncDocInBackground(doc(db, 'reactions', reactionId), reactionObj);
+    relay.announce('hug');
   };
 
   // "Balas pelukan" on a notification is answered by the worker handing the job to
@@ -2143,6 +2171,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     setJournals((prev) => [entryObj, ...prev]);
     syncDocInBackground(doc(db, 'journals', id), entryObj);
+    if (entryObj.isShared) relay.announce('journal');
   };
 
   const updateJournal = async (id: string, updates: Partial<JournalEntry>) => {
@@ -2479,6 +2508,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     setAgreements((prev) => [agreementObj, ...prev]);
     syncDocInBackground(doc(db, 'agreements', id), agreementObj);
+    if (hasPartner) relay.announce('agreement');
   };
 
   // Approve Agreement
@@ -2687,6 +2717,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     sound.playHabitComplete();
     syncDocInBackground(doc(db, 'checkins', id), newCheckIn);
+    if (newCheckIn.isShared) relay.announce('checkin');
   };
 
   // Unlock Island Decoration with XP. The read-check-write runs in a transaction
@@ -2853,6 +2884,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     hugStats,
     unreadNews,
     notifications,
+    relay,
     syncEvents,
     syncAlert,
     dismissSyncAlert,

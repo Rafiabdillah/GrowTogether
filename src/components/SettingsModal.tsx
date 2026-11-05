@@ -27,6 +27,7 @@ import { usePWAInstall } from '../hooks/usePWAInstall';
 import { friendlyAccountError } from '../lib/authErrors';
 import { explainSyncEvent, friendlyTarget } from '../lib/syncBus';
 import { useConfirm } from './ConfirmDialog';
+import { TelegramRelayCard } from './TelegramRelayCard';
 import { KIND_LABELS, NOTIFICATION_KIND_ORDER, type NotificationKind } from '../lib/growNotifTypes';
 import type { DeliveryResult, PermissionState } from '../lib/notifications';
 import type { PushOutcome } from '../lib/pushSubscription';
@@ -1247,6 +1248,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </p>
                 )}
               </div>
+
+              <TelegramRelayCard />
 
               {notifications.log.length > 0 && (
                 <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700">

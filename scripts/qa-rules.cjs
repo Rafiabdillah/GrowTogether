@@ -9,6 +9,9 @@
 //   - pointer kode ruang dan ekonomi XP
 //   - alamat push perangkat: hanya pemiliknya yang menulis/membaca/menghapus,
 //     wajib https + kunci enkripsi, dan tidak bisa dipindah ke uid lain
+//   - ikatan Telegram per anggota: hanya pemilik yang menulis, pasangan satu
+//     ruang boleh membaca (pengirim butuh alamat chat tujuan), orang asing dan
+//     penebak chat id ditolak, dan chat id wajib angka
 //   - default deny untuk koleksi yang tidak dikenal + sesi tanpa login
 // Catatan: aturan "list" (query) sengaja hanya dilaporkan sebagai INFO karena
 // emulator lokal menilai klausa list dengan cara yang berbeda dari produksi;
@@ -360,6 +363,46 @@ async function main() {
   check('alamat push tidak terbaca tanpa login', anonCariAlamat.err === 'permission-denied', anonCariAlamat.err || 'TERBACA');
   const lepasPunyaSendiri = await attempt(f.deleteDoc(f.doc(dbA2, 'pushSubscriptions', subIdA2)));
   check('perangkat boleh melepas langganannya sendiri', lepasPunyaSendiri === 'OK', lepasPunyaSendiri);
+
+  say('ikatan Telegram per anggota (bentuk tulisan persis src/lib/telegramBindings.ts)');
+  const ikat = (overrides) => ({
+    coupleId: roomA,
+    chatId: '-1001234567890',
+    chatName: 'Chat GrowTogether',
+    enabled: true,
+    seenAt: Date.now(),
+    updatedAt: Date.now(),
+    ...(overrides || {}),
+  });
+  const pasangIkatanSendiri = await attempt(f.setDoc(f.doc(dbA1, 'telegramBindings', a1), ikat()));
+  check('anggota boleh menerbitkan ikatan chat miliknya sendiri', pasangIkatanSendiri === 'OK', pasangIkatanSendiri);
+  const pasangIkatanPasangan = await attempt(f.setDoc(f.doc(dbA1, 'telegramBindings', a2), ikat()));
+  check('tidak bisa menerbitkan ikatan chat atas nama pasangan', pasangIkatanPasangan === 'permission-denied', pasangIkatanPasangan);
+  const ikatanChatSalah = await attempt(f.setDoc(f.doc(dbA1, 'telegramBindings', a1), ikat({ chatId: 'abc-123' })));
+  check('chat id harus angka (tidak ada sisipan teks sembarang)', ikatanChatSalah === 'permission-denied', ikatanChatSalah);
+  const ikatanRuangAsing = await attempt(f.setDoc(f.doc(dbA1, 'telegramBindings', a1), ikat({ coupleId: roomB })));
+  check('ikatan tidak boleh menunjuk ruang yang bukan milikmu', ikatanRuangAsing === 'permission-denied', ikatanRuangAsing);
+  const ikatanNamaPanjang = await attempt(f.setDoc(f.doc(dbA1, 'telegramBindings', a1), ikat({ chatName: 'x'.repeat(81) })));
+  check('nama chat dibatasi 80 karakter', ikatanNamaPanjang === 'permission-denied', ikatanNamaPanjang);
+  const detak = await attempt(f.setDoc(f.doc(dbA1, 'telegramBindings', a1), { seenAt: Date.now() + 5000 }, { merge: true }));
+  check('detak kehadiran (hanya seenAt) boleh ditulis pemiliknya', detak === 'OK', detak);
+  const matikanIkatan = await attempt(f.setDoc(f.doc(dbA1, 'telegramBindings', a1), { enabled: false }, { merge: true }));
+  check('pemilik boleh mematikan bangunannya sendiri', matikanIkatan === 'OK', matikanIkatan);
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await f.setDoc(f.doc(ctx.firestore(), 'telegramBindings', a2), ikat({ chatId: '-1009876543210', chatName: 'HP Pasangan' }));
+  });
+  const bacaIkatanPasangan = await f.getDoc(f.doc(dbA1, 'telegramBindings', a2)).catch((e) => ({ err: e.code }));
+  check('pasangan satu ruang boleh membaca ikatan chat kita (diperlukan pengirim)', !bacaIkatanPasangan.err && bacaIkatanPasangan.exists(), bacaIkatanPasangan.err || 'exists');
+  const bacaIkatanOrang = await f.getDoc(f.doc(dbB1, 'telegramBindings', a1)).catch((e) => ({ err: e.code }));
+  check('orang dari ruang lain tidak bisa membaca ikatan chat', (bacaIkatanOrang.err === 'permission-denied') || bacaIkatanOrang.exists === false, bacaIkatanOrang.err || 'TERBACA');
+  const ubahIkatanPasangan = await attempt(f.setDoc(f.doc(dbA1, 'telegramBindings', a2), { enabled: false }, { merge: true }));
+  check('tidak bisa mematikan/menghidupkan ikatan pasangan', ubahIkatanPasangan === 'permission-denied', ubahIkatanPasangan);
+  const anonIkatan = await f.getDoc(f.doc(dbAnon, 'telegramBindings', a1)).catch((e) => ({ err: e.code }));
+  check('ikatan chat tidak terbaca tanpa login', anonIkatan.err === 'permission-denied', anonIkatan.err || 'TERBACA');
+  const tebakIkatan = await f.getDocs(f.collection(dbB1, 'telegramBindings')).catch((e) => ({ err: e.code }));
+  info('memburu chat id dengan query koleksi di emulator', { hasil: tebakIkatan.err || `${tebakIkatan.size} baris` });
+  const hapusIkatan = await attempt(f.deleteDoc(f.doc(dbA1, 'telegramBindings', a1)));
+  check('pemilik boleh melepas ikatan chatnya sendiri', hapusIkatan === 'OK', hapusIkatan);
 
   say('default deny & sesi tanpa login');
   const stray = await attempt(f.setDoc(f.doc(dbA1, 'notifications', `n_${stamp}`), { coupleId: roomA, text: 'x' }));

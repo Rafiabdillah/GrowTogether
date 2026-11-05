@@ -377,5 +377,39 @@ service cloud.firestore {
       // expired ones with admin rights, which bypass rules entirely.
       allow delete: if ownSubscription();
     }
+
+    // Relay Telegram: alamat chat yang membangunkan HP tertutup. Beda dengan
+    // endpoint push, chat id ini HARUS bisa dibaca pasangan — tanpa server kita,
+    // browser si pengirim yang mengantar kabarnya. Yang ditulis tetap hanya
+    // pemiliknya, dan isinya hanya alamat chat, bukan isi kabar.
+    match /telegramBindings/{userId} {
+      function ownBinding() {
+        return isSignedIn() && isValidId(userId) && userId == request.auth.uid;
+      }
+
+      function validBinding() {
+        return ownBinding()
+          && incoming().coupleId is string
+          && incoming().coupleId.size() > 0
+          && isCoupleMember(incoming().coupleId)
+          && incoming().chatId is string
+          && incoming().chatId.matches('^-?[0-9]{1,20}$')
+          && incoming().enabled is bool
+          && incoming().seenAt is number
+          && incoming().seenAt >= 0
+          && incoming().updatedAt is number
+          && incoming().updatedAt >= 0
+          && (!('chatName' in incoming())
+            || (incoming().chatName is string && incoming().chatName.size() <= 80));
+      }
+
+      allow get: if isSignedIn() && isValidId(userId)
+        && (userId == request.auth.uid || sharesCouple(userId));
+      // Sengaja tidak ada allow list: mencari chat id dengan menebak adalah
+      // persis yang harus mustahil, dan aplikasi tidak pernah butuh query di sini.
+      allow create: if validBinding();
+      allow update: if validBinding();
+      allow delete: if ownBinding();
+    }
   }
 }
