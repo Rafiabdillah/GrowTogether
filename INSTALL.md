@@ -40,6 +40,7 @@ Firefox dan Safari desktop belum mendukung pemasangan PWA; aplikasi tetap bisa d
 - **Simpan kode ruangmu.** Tanpa akun, kode itu satu-satunya jalan masuk ke ruang yang sama, dan data ruang terikat ke ID perangkat (bisa dilihat di layar yang sama).
 - Aplikasi tetap bisa dibuka saat offline untuk data yang sudah pernah dimuat; perubahan disinkronkan saat kembali online.
 - Pembaruan aplikasi berjalan otomatis saat ada versi baru dan koneksi internet.
+- Kabar yang datang saat aplikasinya ditutup bisa membangunkan HP lewat **satu bot Telegram milik kalian berdua** — gratis, tanpa server GrowTogether: di Telegram kirim `/newbot` ke `@BotFather` lalu salin token-nya; di **kedua** HP buka **Pengaturan → Notifikasi** → tempel token → **Simpan token**; di tiap HP kirim `/start` ke bot itu lalu tekan **Deteksi chat saya**; buktikan dengan **Kirim pesan tes**. Yang keluar dari ponsel hanya kalimat baku (misalnya "Rafi mengirim pelukan untukmu") — judul habit, isi jurnal, dan catatan check-in tetap tinggal di ruang kalian. Sakelar **Bangunkan HP saya untuk kabar pasangan** ada di tiap HP, dan HP yang sedang dipakai tidak pernah digetarkan.
 
 ## Untuk pengguna PC yang ingin menjalankan tanpa hosting
 

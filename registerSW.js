@@ -1,1 +1,1 @@
-if('serviceWorker' in navigator) {window.addEventListener('load', () => {navigator.serviceWorker.register('/GrowTogether/sw.js', { scope: '/GrowTogether/' })})}
+if('serviceWorker' in navigator) {window.addEventListener('load', () => {navigator.serviceWorker.register('/Program%20Files/Git/GrowTogether/sw.js', { scope: '/Program%20Files/Git/GrowTogether/' })})}

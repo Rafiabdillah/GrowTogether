@@ -1,89 +1,79 @@
-# GrowTogether v1.2.5 — alamat push perangkat sudah dipasang di aplikasi; pengirimnya tinggal dinyalakan
+# GrowTogether v1.2.6 — kabar pasangan sekarang benar-benar bisa membangunkan HP yang tertutup, tanpa server dan tanpa bayar
 
-Permintaannya: kabar pasangan harus tetap bangun di HP padahal aplikasinya ditutup.
-Jalan satu-satunya yang jujur untuk itu adalah Web Push resmi — browser mendaftarkan
-alamat perangkat ke layanan push, server menyimpan alamat itu, dan pengirimnya harus
-berjalan di luar browser. Versi ini memasang separuh pertama dengan lengkap: aplikasi
-sekarang benar-benar bisa berlangganan, menyimpan alamatnya, memperbaruinya saat
-berputar, dan menghapusnya lagi. Separuh kedua (pengirim di Cloud Functions) sudah
-ditulis dan siap deploy, tapi tertahan satu hal yang bukan kode: proyek Firebase masih
-di plan Spark, dan Secret Manager — tempat kunci VAPID privat disimpan — hanya bisa
-dinyalakan setelah upgrade Blaze.
+Permintaan yang menggerakkan dua versi terakhir: notifikasi harus tetap muncul walaupun
+aplikasinya sudah ditutup. Jalur Web Push resmi masih ada dan tetap siap deploy, tapi
+ia menuntut Cloud Functions — dan Cloud Functions menuntut plan Blaze, artinya kartu
+kredit. Versi ini menambahkan jalur yang **benar-benar gratis**: kabar dititip ke satu
+bot Telegram milik kalian berdua, dikirim langsung dari browser pengirim. Tidak ada
+server GrowTogether di tengah, tidak ada yang perlu di-upgrade, dan tidak ada isi
+privat yang ikut keluar.
 
 ## Yang berubah
 
-- **Langganan push nyata di aplikasi.** Service worker menangani `push` dan
-  `pushmessage` (termasuk `gt:push-renew` saat layanan push memutar alamat
-  perangkat), alamat beserta `p224` auth dan `p256` applicationServerKey disimpan ke
-  koleksi `pushSubscriptions` atas nama uid perangkat, dan preferensi per jenis kabar
-  ikut terkirim supaya "jangan bangunkan aku untuk jurnal" juga berlaku saat aplikasi
-  tertutup.
-- **Aturan Firestore khusus kotak alamatnya.** `pushSubscriptions` hanya bisa dibaca,
-  ditulis, dan dihapus oleh pemilik uid-nya; `endpoint` wajib benar-benar HTTPS, dan
-  pemindaian kepemilikan memakai pola id yang sama seperti dokumen lain.
-- **Kartu "Kanal push perangkat ini" yang tidak berpura-pura.** Pengaturan → Notifikasi
-  melaporkan salah satu dari: belum ada kunci VAPID di build (server push belum
-  dinyalakan), browser tidak menyediakan `PushManager`, izin belum diberikan, alamat
-  terdaftar, atau percobaan gagal dengan alasannya. Tidak ada lagi keadaan yang tampak
-  siap padahal tidak.
-- **Catatan jujur di layar Pasangan** selama alamat push belum terdaftar: kabar tetap
-  masuk selama aplikasi pasangan terbuka di latar, dan tidak hilang saat tertutup —
-  antreannya menahan sampai aplikasi dibuka lagi.
-- **README: blok "Notifikasi push (aplikasi benar-benar tertutup)"** berisi urutan nyata:
-  upgrade Blaze, buat pasangan kunci VAPID, simpan publiknya di `VITE_VAPID_PUBLIC_KEY`
-  (build) + ketiganya di Secret Manager (server), `deploy --only functions`, dan cara
-  membuktikannya tanpa menyentuh produksi lewat `npm run test:push`. Nilai privat tidak
-  pernah masuk repo; `functions/.env` dan `functions/.secret.local` sudah tertutup
-  `.gitignore`.
+- **Relay Telegram sisi pengirim** (`src/lib/telegramRelay.ts`). Bot dibuat sekali lewat
+  `@BotFather`, token-nya ditempel di kedua HP dan **hanya hidup di localStorage
+  perangkat itu** — tidak pernah ikut tersinkron. `sendMessage` dipanggil sebagai POST
+  `application/x-www-form-urlencoded` supaya tidak memicu preflight CORS (Telegram
+  menjawab 501 untuk itu).
+- **Alamat chat per anggota** (`src/lib/telegramBindings.ts` + koleksi
+  `telegramBindings/{uid}`). Tiap perangkat mengumumkan alamat chat-nya sendiri;
+  pengirim cukup membaca dokumen pasangan untuk tahu ke mana kabar boleh dititip.
+  Aturan Firestore melarang `list` di koleksi ini, jadi menebak-nebak chat id orang
+  lain tetap gagal, dan pasangan satu ruang boleh membaca ikatan kalian (`allow get`).
+- **HP yang sedang digenggam tidak digetarkan.** Perangkat menandai kehadirannya setiap
+  60 detik selama halaman terlihat; kalau pasangan tampak aktif dalam 90 detik
+  terakhir, kabar berhenti di notifikasi in-app saja.
+- **Kabar beruntun dilebur jadi satu pesan.** Jendela 4 detik, jeda 45 detik, maksimal
+  ditahan 3 menit — jadi tiga habit sekaligus tidak mengubah chat kalian jadi spam.
+- **Yang keluar dari ponsel hanya kalimat baku.** `Rafi mengirim pelukan untukmu. Buka
+  GrowTogether untuk melihatnya.` Judul habit, isi jurnal, dan catatan check-in tidak
+  pernah ikut; tes dua perangkat membuktikan teks privat tidak ada di payload.
+- **Kartu "Bangunkan HP pasangan lewat Telegram" di Pengaturan → Notifikasi** yang
+  melaporkan keadaan sebenarnya: pasangan belum memasang, sudah memasang tapi
+  mematikan sakelarnya sendiri, server menolak membaca ikatannya, atau siap dibangunkan
+  lengkap dengan kapan terakhir ia aktif. Token tidak pernah ditampilkan utuh dan bisa
+  ditutup/lepas lagi.
+- **Perbaikan akar: aplikasi bisa "salah ingat" siapa pasangannya.** Saat muat ulang,
+  ruang belum tentu sudah terisi, dan `couple.id` sementara masih berisi data bawaan.
+  Dulu pasangan diambil dari data itu, jadi kabar bisa diam-diam tidak pernah berangkat
+  (atau menunjuk uid yang bukan pasangan di ruang ini). Sekarang identitas pasangan
+  hanya dipercaya kalau dokumen ruang yang sama sudah benar-benar terbaca, dan sekali
+  diketahui ia tidak terlupa selama muat ulang berlangsung.
+- **Status pasangan di kartu sekarang hidup, bukan potret sesaat.** Dulu ikatan pasangan
+  dibaca sekali waktu halaman dibuka, jadi kartu bisa bilang "belum memasang Telegram"
+  berlama-lama padahal pasangan baru saja memasangnya. Sekarang dibaca lewat dua jalur
+  sekaligus: satu pembacaan langsung ke server begitu kartu dibuka (langsung jujur, tanpa
+  menunggu) ditambah langganan realtime yang mengoreksi kartu detik itu juga saat
+  pasangan memasang, melepas, atau mematikan sakelarnya. Baris dari cache lokal dibuang —
+  alamat chat yang basi bisa mengirim pelukan ke HP yang salah.
+- **Semua kegagalan dibaca dari sumbernya, bukan ditebak.** Galat baca ikatan pasangan
+  tidak lagi menyamar sebagai "belum memasang Telegram": ditolak aturan, dokumen belum
+  ada, bentuk tidak lengkap, dan koneksi putus kini punya kalimat masing-masing di
+  kartu. Bot yang menjawab `ok: false` tercatat sebagai ditolak, jaringan mati tercatat
+  sebagai tidak ada jawaban — tidak pernah sebagai terkirim.
 
-## Yang sengaja belum aktif
+## Dibuktikan, bukan diklaim
 
-Pengirim push (Cloud Functions + VAPID) belum berjalan di produksi, jadi hari ini HP
-yang benar-benar tertutup masih belum bisa dibangunkan. Rantai kendalanya:
+- `npm run test:rules` — aturan asli Firestore diuji per-dokumen lewat
+  rules-unit-testing, termasuk 12 uji ikatan Telegram: menerbitkan atas nama pasangan
+  ditolak, chat id bukan angka ditolak, ikatan menunjuk ruang asing ditolak, `list`
+  tidak tersedia, dan pasangan satu ruang boleh membaca.
+- `npm run test:relay` — modul relay dijalankan di proses Node dengan bot tiruan:
+  bentuk form, penggabungan burst, cooldown, privasi kalimat, pemetaan galat, dan
+  `discoverChat` yang jujur saat belum ada yang menekan `/start`.
+- `npm run test:devices` — dua Chrome nyata, dua perangkat terpisah, terhadap emulator:
+  kedua HP mengikat chat lewat UI, satu HP benar-benar ditutup (`about:blank`), jam
+  kehadirannya dimundurkan, lalu satu tekan 🤗 menghasilkan **tepat satu** `sendMessage`
+  ke chat pasangan dan **nol** ke chat pengirim; dengan pasangan aktif kembali,
+  hasilnya **nol** pesan; pasangan yang mematikan sakelarnya terbaca apa adanya di kartu
+  pengirim.
 
-```
-plan Spark → secretmanager.googleapis.com tidak bisa dinyalakan
-           → VAPID_PRIVATE_KEY tidak bisa disimpan
-           → functions tidak bisa deploy
-           → tidak ada alamat yang dibangunkan
-```
+## Memakai jalur ini (sekitar dua menit)
 
-Begitu proyek naik ke Blaze, sisanya satu tarikan: tulis tiga secret
-(`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`), `deploy --only functions`,
-lalu build ulang dengan `VITE_VAPID_PUBLIC_KEY`. Semua bagiannya sudah disiapkan dan
-sudah teruji terhadap emulator.
+1. Telegram → `@BotFather` → `/newbot` → salin token.
+2. Di **kedua** HP: Pengaturan → Notifikasi → tempel token yang sama → *Simpan token*.
+3. Di masing-masing HP, kirim `/start` ke bot itu, lalu tekan *Deteksi chat saya*.
+4. Tekan *Kirim pesan tes* untuk memastikan jalurnya hidup.
 
-## Verifikasi
-
-- Harness dua perangkat nyata (emulator Firestore + dua Chrome dengan profil terpisah):
-  **111 PASS / 0 FAIL**, 13 fase, termasuk dua cek yang sebelumnya salah ukur — beli
-  dekorasi 200 XP → 700 XP di perangkat lain (database: `levelXp 700`,
-  `unlockedDecorations ["lanterns"]`, layar "Dekorasi terpasang di pulau kalian!") dan
-  cuaca Gerimis (mendarat di server dalam 3,8 detik, tombol yang menyala ikut berubah
-  di kedua layar).
-- Suite aturan produksi (`npm run test:rules`): **74 PASS / 0 FAIL**, empat probe baru
-  menutup tulisan yang selama ini tidak teruji: baris `logs` dari `toggleHabit`, dan
-  `reactions/seenAt` oleh penerima, oleh pengirim, serta ditolak untuk orang luar.
-- Suite jalur push (`npm run test:push`): **28 PASS / 0 FAIL**, termasuk kontrak fungsi
-  `subscribePush` dan granularitas 255 byte.
-- `npm run lint` bersih. Log konsol kedua perangkat di akhir run: kosong (tanpa error
-  maupun warning), dan tidak ada `window.confirm` yang tersisa.
-
-## Perbaikan pada alat ukurnya, bukan aplikasinya
-
-Dua FAIL terakhir ternyata cacat pengukuran, dan memperbaikinya sekaligus membuat
-alasan kegagalan berikutnya bisa dibaca:
-
-- **Jangan baca sekali untuk tulisan latar belakang.** Sekarang isi database dibaca
-  lewat REST emulator dan di-poll sampai mendarat, plus jejak "Log aktivitas sinkron"
-  perangkat sebagai saksi kenapa kalau tidak sampai — bedanya "server menolak" dan
-  "masih dalam perjalanan" jadi terlihat.
-- **Saksi teks yang menyesatkan dibuang.** "Gerimis ada di layar B" selalu benar karena
-  deretan tombol cuaca memang berisi kata itu; yang dibaca sekarang tombol mana yang
-  sedang menyala.
-- **Chrome headless.desktop menghukum tab latar** dengan menunda timer Firestore, jadi
-  tiga bendera anti-throttling dipasang; kasus "ponsel di kantong" tetap diuji lewat
-  `visibilityState` paksa dan notifikasi sistem nyata.
-- **Keheningan tidak boleh lagi berarti menunggu.** Koneksi CDP kini punya batas waktu
-  per perintah dan menolak semua penunggu saat socket putus, jadi harness yang macet
-  melapor sebagai FAIL alih-alih diam berjam-jam.
+Jalur Web Push (Blaze) tetap tersedia dan tidak berubah: kalau nanti dinyalakan, kedua
+kanal bisa hidup bersamaan dan aturan Firestore-nya sudah sama-sama terbukti.
