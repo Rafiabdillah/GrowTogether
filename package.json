@@ -1,7 +1,7 @@
 {
   "name": "growtogether",
   "private": true,
-  "version": "1.2.6",
+  "version": "1.2.7",
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
@@ -13,6 +13,7 @@
     "test:rules": "node scripts/qa-rules.cjs",
     "test:push": "node scripts/qa-push.cjs",
     "test:relay": "node scripts/qa-relay.cjs",
+    "test:tree": "node scripts/qa-tree.cjs",
     "test:devices": "node scripts/qa-two-devices.cjs",
     "deploy:rules": "npx --yes firebase-tools deploy --only firestore:rules",
     "deploy:push": "npx --yes firebase-tools deploy --only functions --project growtogether-rafiabdillah",

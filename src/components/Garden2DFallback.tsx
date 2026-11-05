@@ -1,11 +1,14 @@
 import React from 'react';
 import { Sparkles, Sun, Moon, Cloud, Heart } from 'lucide-react';
 import { TimeOfDay, WeatherType, IslandDecorationId } from '../types';
+import { nextPart, openParts, partLabel, TREE_PARTS, type TreePartId } from '../lib/treeCraft';
 
 interface Garden2DFallbackProps {
   streakCount: number;
   completedTodayUser: boolean;
   completedTodayPartner: boolean;
+  /** Misi tuntas seumur ruangan; tiap ambang menambah satu bagian pada pohon. */
+  missionsDone: number;
   timeOfDay: TimeOfDay;
   weather: WeatherType;
   unlockedDecorations: IslandDecorationId[];
@@ -17,6 +20,7 @@ export const Garden2DFallback: React.FC<Garden2DFallbackProps> = ({
   streakCount,
   completedTodayUser,
   completedTodayPartner,
+  missionsDone,
   timeOfDay,
   weather,
   unlockedDecorations,
@@ -33,12 +37,39 @@ export const Garden2DFallback: React.FC<Garden2DFallbackProps> = ({
       ? 'Pohon Rimbun (Tahap 3)'
       : 'Pohon Pusaka Berbunga (Tahap 4)';
 
+  const craft = openParts(missionsDone);
+  const open = new Set<TreePartId>(craft.map((p) => p.id));
+  const punuk = nextPart(missionsDone);
+
   // Accessibility text for screen readers
-  const a11ySummary = `Pohon pertumbuhan kalian berada di ${growthStage}, dengan streak ${streakCount} hari bersama. Lentera ${userLabel} ${
+  const a11ySummary = `Pohon pertumbuhan kalian berada di ${growthStage}, dengan streak ${streakCount} hari bersama. ` +
+    `Dari ${TREE_PARTS.length} pelengkap pohon, ${craft.length} sudah terbuka karena ${missionsDone} misi kalian selesaikan` +
+    (craft.length > 0 ? `: ${craft.map((p) => p.label).join(', ')}` : '') + '. ' +
+    (punuk
+      ? `Bagian berikutnya, ${punuk.part.label}, terbuka setelah ${punuk.remaining} misi lagi. `
+      : 'Pohon kalian sudah lengkap. ') +
+    `Lentera ${userLabel} ${
     completedTodayUser ? 'menyala terang' : 'belum menyala'
   }, dan lentera ${partnerLabel} ${
     completedTodayPartner ? 'menyala terang' : 'belum menyala'
   }. Cuaca saat ini ${weather === 'rain' ? 'gerimis lembut' : weather === 'rainbow' ? 'pelangi indah' : 'langit cerah'}.`;
+
+  // Tajuk dipakai sebagai jangkar: pelengkap dari misi harus menempel di pohon
+  // yang benar-benar tampil, bukan di koordinat tetap yang jatuh ke langit.
+  const canopy =
+    streakCount >= 8
+      ? { x: 200, y: 78, r: 50 }
+      : streakCount >= 4
+      ? { x: 200, y: 98, r: 36 }
+      : { x: 200, y: 138, r: 18 };
+  const shell = (i: number, n: number, scale = 1) => {
+    const phi = Math.acos(1 - (2 * (i + 0.5)) / n);
+    const theta = Math.PI * (1 + Math.sqrt(5)) * (i + 0.5);
+    return {
+      cx: canopy.x + canopy.r * scale * Math.sin(phi) * Math.cos(theta),
+      cy: canopy.y + canopy.r * scale * Math.cos(phi) * 0.75,
+    };
+  };
 
   // Background gradient per time of day
   const skyClasses =
@@ -54,6 +85,7 @@ export const Garden2DFallback: React.FC<Garden2DFallbackProps> = ({
     <div
       role="region"
       aria-label="Taman Kita Versi Ringan dan Aksesibel"
+      data-craft={`${missionsDone} misi tuntas · ${craft.length}/${TREE_PARTS.length} pelengkap`}
       className={`relative w-full h-[380px] rounded-3xl overflow-hidden bg-gradient-to-b ${skyClasses} border border-stone-200/80 dark:border-stone-800 shadow-sm flex flex-col justify-between p-6 select-none`}
     >
       {/* Hidden screen-reader announcement */}
@@ -66,6 +98,8 @@ export const Garden2DFallback: React.FC<Garden2DFallbackProps> = ({
           <span>Taman Kita (Mode Aksesibel 2D)</span>
           <span className="text-stone-400">·</span>
           <span>{growthStage}</span>
+          <span className="text-stone-400">·</span>
+          <span>{craft.length}/{TREE_PARTS.length} pelengkap</span>
         </div>
 
         <div className="flex items-center gap-2 text-xs font-mono font-bold px-3 py-1.5 rounded-full bg-white/70 dark:bg-stone-900/70">
@@ -138,6 +172,147 @@ export const Garden2DFallback: React.FC<Garden2DFallbackProps> = ({
               <ellipse cx="190" cy="140" rx="16" ry="25" fill="#E06D53" transform="rotate(-25 190 140)" />
               <ellipse cx="210" cy="140" rx="16" ry="25" fill="#4A826B" transform="rotate(25 210 140)" />
             </>
+          )}
+
+          {/* Pelengkap pohon: satu bagian tiap ambang misi yang tuntas, jangkar
+              sama dengan versi 3D supaya kedua mode bercerita hal yang sama. */}
+          {open.has('roots') && (
+            <g data-part="roots" fill="none" stroke="#8A6548" strokeWidth="3" strokeLinecap="round">
+              <title>{partLabel('roots')}</title>
+              <path d="M 193 213 Q 181 219 173 222" />
+              <path d="M 207 213 Q 219 219 227 222" />
+              <path d="M 197 214 Q 191 223 187 229" />
+              <path d="M 203 214 Q 211 223 215 229" />
+            </g>
+          )}
+          {open.has('moss') && (
+            <g data-part="moss" fill="#5F8B63" opacity="0.85">
+              <title>{partLabel('moss')}</title>
+              <ellipse cx="191" cy="168" rx="6" ry="3" />
+              <ellipse cx="206" cy="150" rx="5" ry="2.5" />
+              <ellipse cx="194" cy="128" rx="4.5" ry="2.5" />
+            </g>
+          )}
+          {open.has('sprigs') && (
+            <g data-part="sprigs" stroke="#8A6548" strokeWidth="3" fill="none" strokeLinecap="round">
+              <title>{partLabel('sprigs')}</title>
+              <path d="M 196 156 Q 178 148 168 138" />
+              <path d="M 204 150 Q 224 144 234 133" />
+            </g>
+          )}
+          {open.has('leafTufts') && (
+            <g data-part="leafTufts" fill="#6BB57E" opacity="0.9">
+              <title>{partLabel('leafTufts')}</title>
+              <circle cx="166" cy="135" r="9" />
+              <circle cx="236" cy="130" r="9" />
+              <circle cx={canopy.x} cy={canopy.y - canopy.r - 5} r="8" />
+            </g>
+          )}
+          {open.has('blossoms') && (
+            <g data-part="blossoms" fill="#FFF1D6">
+              <title>{partLabel('blossoms')}</title>
+              {[0, 1, 2, 3, 4, 5].map((i) => {
+                const p = shell(i, 6, 1.05);
+                return <circle key={i} cx={p.cx} cy={p.cy} r="4.5" />;
+              })}
+            </g>
+          )}
+          {open.has('fruits') && (
+            <g data-part="fruits" fill="#D97706">
+              <title>{partLabel('fruits')}</title>
+              {[0, 1, 2, 3].map((i) => {
+                const ang = (i / 4) * Math.PI * 2;
+                return (
+                  <circle
+                    key={i}
+                    cx={canopy.x + Math.cos(ang) * canopy.r * 0.55}
+                    cy={canopy.y + canopy.r * 0.72 + Math.sin(ang) * 4}
+                    r="4"
+                  />
+                );
+              })}
+            </g>
+          )}
+          {open.has('nest') && (
+            <g data-part="nest">
+              <title>{partLabel('nest')}</title>
+              <ellipse cx={canopy.x + canopy.r * 0.78} cy={canopy.y + 4} rx="11" ry="6" fill="#8A5A36" />
+              <circle cx={canopy.x + canopy.r * 0.78 - 4} cy={canopy.y + 1} r="2.6" fill="#F8FAFC" />
+              <circle cx={canopy.x + canopy.r * 0.78 + 3} cy={canopy.y + 1} r="2.6" fill="#F8FAFC" />
+            </g>
+          )}
+          {open.has('vines') && (
+            <g data-part="vines" stroke="#3F7D58" strokeWidth="2" fill="none" strokeLinecap="round">
+              <title>{partLabel('vines')}</title>
+              {[0, 1, 2].map((i) => {
+                const x = canopy.x + (i - 1) * canopy.r * 0.6;
+                const y = canopy.y + canopy.r * 0.6;
+                return <path key={i} d={`M ${x} ${y} q 6 14 -2 ${22 + i * 6}`} />;
+              })}
+            </g>
+          )}
+          {open.has('mushrooms') && (
+            <g data-part="mushrooms">
+              <title>{partLabel('mushrooms')}</title>
+              {[
+                { x: 128, y: 208 },
+                { x: 268, y: 206 },
+                { x: 156, y: 214 },
+              ].map((m) => (
+                <g key={m.x}>
+                  <rect x={m.x - 1.5} y={m.y} width="3" height="8" fill="#F5F0E6" />
+                  <ellipse cx={m.x} cy={m.y} rx="7" ry="4" fill="#E06D53" />
+                </g>
+              ))}
+            </g>
+          )}
+          {open.has('fireflies') && (
+            <g data-part="fireflies" fill="#FFE066">
+              <title>{partLabel('fireflies')}</title>
+              {[0, 1, 2, 3, 4, 5].map((i) => {
+                const ang = (i / 6) * Math.PI * 2;
+                return (
+                  <circle
+                    key={i}
+                    cx={canopy.x + Math.cos(ang) * (canopy.r + 24)}
+                    cy={canopy.y + Math.sin(ang) * (canopy.r + 14)}
+                    r="2.6"
+                    opacity="0.9"
+                  />
+                );
+              })}
+            </g>
+          )}
+          {open.has('birds') && (
+            <g data-part="birds">
+              <title>{partLabel('birds')}</title>
+              <ellipse cx={canopy.x - 13} cy={canopy.y - canopy.r - 3} rx="6" ry="4.5" fill="#60A5FA" />
+              <circle cx={canopy.x - 19} cy={canopy.y - canopy.r - 6} r="2.8" fill="#60A5FA" />
+              <polygon
+                points={`${canopy.x - 22},${canopy.y - canopy.r - 7} ${canopy.x - 25},${canopy.y - canopy.r - 5} ${canopy.x - 22},${canopy.y - canopy.r - 4}`}
+                fill="#FDE047"
+              />
+              <ellipse cx={canopy.x + 13} cy={canopy.y - canopy.r - 3} rx="6" ry="4.5" fill="#F59E0B" />
+              <circle cx={canopy.x + 19} cy={canopy.y - canopy.r - 6} r="2.8" fill="#F59E0B" />
+              <polygon
+                points={`${canopy.x + 22},${canopy.y - canopy.r - 7} ${canopy.x + 25},${canopy.y - canopy.r - 5} ${canopy.x + 22},${canopy.y - canopy.r - 4}`}
+                fill="#FDE047"
+              />
+            </g>
+          )}
+          {open.has('crown') && (
+            <g data-part="crown">
+              <title>{partLabel('crown')}</title>
+              <ellipse
+                cx={canopy.x}
+                cy={canopy.y - canopy.r - 14}
+                rx={canopy.r * 0.8}
+                ry="8"
+                fill="none"
+                stroke="#FFD166"
+                strokeWidth="2.5"
+              />
+            </g>
           )}
 
           {/* Left Lantern (User A - Coral) */}
@@ -261,6 +436,12 @@ export const Garden2DFallback: React.FC<Garden2DFallbackProps> = ({
 
         <span className="font-mono font-bold">{streakCount} Hari Streak</span>
       </div>
+
+      <p className="text-[11px] font-semibold text-center z-10">
+        {punuk
+          ? `Bagian berikutnya: ${punuk.part.label} — ${punuk.remaining} misi lagi`
+          : 'Semua bagian pohon sudah tumbuh.'}
+      </p>
     </div>
   );
 };

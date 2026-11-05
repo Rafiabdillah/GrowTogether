@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Habit, HabitCategory } from '../types/index';
+import { nextPart, openParts, TREE_PARTS } from '../lib/treeCraft';
 import { XP_PER_LEVEL, toLocalDateString } from '../data/mockData';
 import { AppleWatchRings } from '../components/AppleWatchRings';
 import { useDialog } from '../hooks/useDialog';
@@ -65,6 +66,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
     partnerUser,
     couple,
     combinedStreak,
+    coupleMissions,
     habits,
     logs,
     agreements,
@@ -246,6 +248,12 @@ export const TodayView: React.FC<TodayViewProps> = ({
     userCompletedCount === userTotalHabits &&
     partnerCompletedCount === partnerHabits.length;
 
+  // Tiap ambang misi menumbuhkan satu bagian pohon. Layar menyebut jumlah yang
+  // sudah terbuka dan harga bagian berikutnya, supaya bertambahnya tidak terasa
+  // seperti barang misterius yang muncul sendiri.
+  const treeOpen = openParts(coupleMissions);
+  const treeNext = nextPart(coupleMissions);
+
   return (
     <div className="space-y-6">
       {isBothCompletedAll && (
@@ -305,7 +313,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
               Pohon Kita: simbol pertumbuhan berdua
             </h2>
             <p className="text-xs text-stone-600 dark:text-stone-400 mt-0.5">
-              Pohon mekar seiring streak dan penyelesaian habit harian kalian.
+              Pohon mekar seiring streak kalian, dan tiap misi yang tuntas menumbuhkan satu bagian baru.
             </p>
           </div>
 
@@ -328,15 +336,55 @@ export const TodayView: React.FC<TodayViewProps> = ({
             }
           >
             <ThreeGarden
-                streakCount={combinedStreak}
+              streakCount={combinedStreak}
               completedTodayCount={userCompletedCount}
               partnerCompletedTodayCount={partnerCompletedCount}
+              missionsDone={coupleMissions}
               unlockedDecorations={couple?.unlockedDecorations ?? []}
               timeOfDay={couple?.selectedTimeOfDay ?? 'auto'}
               weather={couple?.selectedWeather ?? 'clear'}
             />
           </Suspense>
         )}
+
+        <div
+          data-tree-craft={coupleMissions}
+          data-tree-open={treeOpen.length}
+          data-tree-total={TREE_PARTS.length}
+          data-tree-next={treeNext ? `${treeNext.part.label}:${treeNext.remaining}` : 'lengkap'}
+          className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs"
+        >
+          <span className="font-semibold text-stone-800 dark:text-stone-100">
+            {coupleMissions} misi tuntas berdua
+          </span>
+          <span className="text-stone-400">·</span>
+          <span className="text-stone-600 dark:text-stone-300">
+            {treeOpen.length}/{TREE_PARTS.length} bagian pohon tumbuh
+          </span>
+          <span className="text-stone-400">·</span>
+          <span className="font-medium text-amber-700 dark:text-amber-300">
+            {treeNext
+              ? `${treeNext.part.label} menyusul setelah ${treeNext.remaining} misi lagi`
+              : 'Pohon kalian sudah lengkap'}
+          </span>
+        </div>
+
+        <ul className="flex flex-wrap gap-1.5" aria-label="Bagian pohon yang sudah tumbuh">
+          {treeOpen.map((part) => (
+            <li
+              key={part.id}
+              title={part.lihat}
+              className="text-[11px] px-2 py-1 rounded-full bg-emerald-500/10 text-emerald-800 dark:text-emerald-200 border border-emerald-600/30"
+            >
+              {part.label}
+            </li>
+          ))}
+          {treeOpen.length === 0 && (
+            <li className="text-[11px] text-stone-500 dark:text-stone-400">
+              Satu habit selesai hari ini sudah cukup untuk menumbuhkan akar pertama.
+            </li>
+          )}
+        </ul>
       </section>
 
       <div role="group" aria-label="Pilih tanggal" className="flex items-center justify-between gap-2 overflow-x-auto py-1 no-scrollbar">

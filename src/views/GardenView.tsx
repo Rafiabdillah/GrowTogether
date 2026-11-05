@@ -29,6 +29,7 @@ export const GardenView: React.FC = () => {
   const {
     couple,
     combinedStreak,
+    coupleMissions,
     logs,
     currentUser,
     partnerUid,
@@ -156,6 +157,7 @@ export const GardenView: React.FC = () => {
             streakCount={combinedStreak}
             completedTodayCount={completedTodayUser}
             partnerCompletedTodayCount={completedTodayPartner}
+            missionsDone={coupleMissions}
             unlockedDecorations={couple.unlockedDecorations}
             timeOfDay={couple.selectedTimeOfDay}
             weather={couple.selectedWeather}
@@ -166,6 +168,7 @@ export const GardenView: React.FC = () => {
           streakCount={combinedStreak}
           completedTodayUser={completedTodayUser > 0}
           completedTodayPartner={completedTodayPartner > 0}
+          missionsDone={coupleMissions}
           timeOfDay={couple.selectedTimeOfDay === 'auto' ? 'day' : couple.selectedTimeOfDay}
           weather={couple.selectedWeather}
           unlockedDecorations={couple.unlockedDecorations}

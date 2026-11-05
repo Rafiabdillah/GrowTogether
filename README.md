@@ -1,6 +1,6 @@
 # GrowTogether
 
-Aplikasi habit dan growth tracker untuk dua orang. Pasangan menandai habit harian, menjalankan timer fokus, mencatat buku dan refleksi, membuat kesepakatan (hadiah dan sanksi ringan), lalu melihat pohon bersama tumbuh di taman 3D.
+Aplikasi habit dan growth tracker untuk dua orang. Pasangan menandai habit harian, menjalankan timer fokus, mencatat buku dan refleksi, membuat kesepakatan (hadiah dan sanksi ringan), lalu melihat pohon bersama tumbuh — makin banyak misi tuntas, makin lengkap bagian pohonnya.
 
 ## Fitur Utama
 
@@ -10,6 +10,7 @@ Aplikasi habit dan growth tracker untuk dua orang. Pasangan menandai habit haria
 - **Sanksi** — kesepakatan hadiah & sanksi dengan persetujuan pasangan, kartu maaf, jeda sanksi, simulasi pemicu.
 - **Progres** — grafik waktu baca/belajar 7 hari, badge, streak, grace day.
 - **Taman** — taman pertumbuhan 3D (WebGL) dengan fallback 2D aksesibel, suasana langit dan cuaca.
+- **Pohon Kita** — tiap ambang misi yang tuntas berdua menumbuhkan satu bagian baru (akar, lumut, ranting, semak daun, bunga, buah, sarang, sulur, jamur, kunang-kunang, sepasang burung, mahkota cahaya): 12 bagian dari misi ke-1 sampai ke-90. Hitungannya murni dari log di server, jadi kedua ponsel selalu melihat pohon yang sama, dan habit privat tidak pernah ikut menumbuhkan apa pun.
 - **PWA** — bisa dipasang di layar utama, aset di-cache Workbox.
 
 ## Instalasi untuk Pengguna

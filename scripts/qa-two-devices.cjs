@@ -22,6 +22,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const Module = require('node:module');
 
 const REPO = process.env.GT_REPO || 'C:/Users/WINDOWS 11/Downloads/growtogether-improved';
 const TMP = process.env.TMP || os.tmpdir();
@@ -485,6 +486,26 @@ function restDocs(collection) {
 const phases = [];
 function phase(name, fn) {
   phases.push({ name, fn });
+}
+
+// Rumus pelengkap pohon diambil dari src apa adanya (esbuild hanya melepas tipe).
+// Harness sengaja tidak punya dugaan sendiri tentang ambangnya: kalau rumusnya
+// berubah, uji di bawah ikut berubah, bukan diam-diam menuduh aplikasi salah.
+let treeCraftMod = null;
+function tree() {
+  if (!treeCraftMod) {
+    const source = fs.readFileSync(`${REPO}/src/lib/treeCraft.ts`, 'utf8');
+    const { transformSync } = require('esbuild');
+    const js = transformSync(source, { loader: 'ts', format: 'cjs' }).code;
+    fs.mkdirSync(WORK, { recursive: true });
+    const file = path.join(WORK, 'treeCraft.harness.cjs');
+    const mod = new Module(file, null);
+    mod.filename = file;
+    mod.paths = Module._nodeModulePaths(path.dirname(file));
+    mod._compile(js, file);
+    treeCraftMod = mod.exports;
+  }
+  return treeCraftMod;
 }
 
 // dev.wait hanya mengembalikan true/false. Perayaan pelukan menutup dirinya sendiri
@@ -1566,6 +1587,74 @@ phase('taman, cuaca, dan toko dekorasi', async () => {
     return s.couple && s.couple.selectedTimeOfDay === 'night'; })()`, 25000);
   check('waktu taman (Malam) tersimpan ke server untuk berdua', malam === 'ok' && timeServer === 'night' && timeOnB,
     { malam, timeServer, timeOnB });
+
+  // Pohon yang makin lengkap. Yang bikin uji ini berarti bukan kedua layar saling
+  // cocok (dua-duanya bisa salah sama rata), tapi daftar bagian yang dibandingkan
+  // dengan hasil rumus dari misi yang benar-benar ada di database.
+  const bagianDi = async (dev, mode) => {
+    const goG = await dev.gotoTab('garden');
+    await dev.clickText(mode === '2D' ? '2D Aksesibel' : '3D WebGL');
+    const ada = await dev.wait(`!!document.querySelector('[data-craft]')`, 25000);
+    const nilai = await dev.t(`(() => { const r = document.querySelector('[data-craft]');
+      return { teks: r ? r.getAttribute('data-craft') : 'TANPA-CRAFT',
+        bagian: [...document.querySelectorAll('[data-part]')].map((g) => g.getAttribute('data-part')).join(',') }; })()`);
+    return { goG, ada, teks: nilai.teks, bagian: nilai.bagian };
+  };
+  const daftar = (s) => String(s || '').split(',').filter(Boolean);
+  const misiServer = async () => {
+    const res = await restDocs('logs');
+    const misi = new Set();
+    const privat = new Set();
+    for (const d of res.docs || []) {
+      if (d.coupleId !== A.coupleId || !d.completed) continue;
+      const kunci = `${d.userId}|${d.habitId}|${d.date}`;
+      if (d.visibility === 'private') privat.add(kunci);
+      else misi.add(kunci);
+    }
+    return { err: res.err || null, misi: misi.size, privat: privat.size, bagian: tree().openPartIds(misi.size) };
+  };
+
+  const s0 = await misiServer();
+  const cA = await bagianDi(A, '2D');
+  const cB = await bagianDi(B, '2D');
+  const listA = daftar(cA.bagian);
+  const listB = daftar(cB.bagian);
+  check('pohon 2D kedua perangkat menumbuhkan bagian yang sama persis',
+    cA.goG && cA.ada && cB.ada && listA.length >= 1 && listA.join(',') === listB.join(','),
+    { a: listA, b: listB, teksA: cA.teks, teksB: cB.teks, server: s0, whereA: await A.where() });
+  check('bagian pohon = rumus dari misi di database, bukan hanya cocok antar layar',
+    !s0.err && listA.join(',') === s0.bagian.join(','), { server: s0, layar: listA });
+  const c3 = await bagianDi(A, '3D');
+  check('mode 3D dan 2D menyebut jumlah pelengkap yang sama',
+    c3.teks === cA.teks && c3.teks !== 'TANPA-CRAFT', { tigaDimensi: c3.teks, duaDimensi: cA.teks });
+
+  // Satu baris privat yang benar-benar tuntas ditanam dari sisi server: pohon
+  // berdua tidak boleh bertumbuh karena hal yang pasangannya tidak lihat.
+  const idPrivat = `qa_pohon_privat_${STAMP}`;
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await f.setDoc(f.doc(ctx.firestore(), 'logs', idPrivat), {
+      habitId: 'qa_pohon_habit', userId: A.uid, coupleId: A.coupleId,
+      date: new Date().toISOString().slice(0, 10), completed: true, durationMinutes: 5, visibility: 'private',
+    });
+  });
+  const tibaDiA = await A.wait(`(() => { try { const s = JSON.parse(localStorage.getItem('gt_state_v1')||'{}');
+    return (s.logs||[]).some((l) => l.id === ${JSON.stringify(idPrivat)} && l.completed === true && l.visibility === 'private'); } catch { return false; } })()`, 25000);
+  const cSetelah = await bagianDi(A, '2D');
+  const s1 = await misiServer();
+  check('misi privat yang tuntas tidak menambah satu bagian pun pada pohon',
+    daftar(cSetelah.bagian).join(',') === listA.join(',') && s1.misi === s0.misi && s1.privat >= 1,
+    { sebelum: listA.length, sesudah: daftar(cSetelah.bagian).length, tibaDiPeladenA: tibaDiA, server: s1 });
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await f.deleteDoc(f.doc(ctx.firestore(), 'logs', idPrivat));
+  });
+
+  const goT = await A.gotoTab('today');
+  const legenda = await A.t(`(() => { const el = document.querySelector('[data-tree-craft]');
+    return el ? { misi: Number(el.getAttribute('data-tree-craft')), buka: Number(el.getAttribute('data-tree-open')),
+      total: Number(el.getAttribute('data-tree-total')), berikut: el.getAttribute('data-tree-next') } : null; })()`);
+  check('legend Pohon Kita menyebut angka database dan bagian berikutnya',
+    goT && !!legenda && legenda.misi === s0.misi && legenda.buka === s0.bagian.length &&
+    legenda.total === tree().TREE_PARTS.length && /:[0-9]+$/.test(String(legenda.berikut || '')), legenda);
 });
 
 phase('pengaturan, tes sinkron, tampilan', async () => {

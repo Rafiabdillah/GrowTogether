@@ -4,11 +4,14 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Sparkles, Eye, RotateCcw, ChevronDown, ChevronUp, TreeDeciduous, Orbit, Home, Palmtree } from 'lucide-react';
 import { IslandDecorationId, TimeOfDay, WeatherType } from '../types';
+import { openPartIds, openParts, TREE_PARTS, type TreePartId } from '../lib/treeCraft';
 
 interface ThreeGardenProps {
   streakCount: number;
   completedTodayCount: number;
   partnerCompletedTodayCount: number;
+  /** Misi tuntas seumur ruangan; tiap ambang menambah satu bagian pada pohon. */
+  missionsDone?: number;
   unlockedDecorations?: IslandDecorationId[];
   timeOfDay?: TimeOfDay;
   weather?: WeatherType;
@@ -20,6 +23,7 @@ export const ThreeGarden: React.FC<ThreeGardenProps> = ({
   streakCount,
   completedTodayCount,
   partnerCompletedTodayCount,
+  missionsDone = 0,
   unlockedDecorations = [],
   timeOfDay = 'auto',
   weather = 'clear',
@@ -28,6 +32,9 @@ export const ThreeGarden: React.FC<ThreeGardenProps> = ({
   const [currentTheme, setCurrentTheme] = useState<SceneTheme>('island');
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isRotating, setIsRotating] = useState(true);
+  // Bagian pohon yang sudah terbuka, dipakai tulisan di atas kanvas: kanvasnya
+  // sendiri tidak bisa dibaca peramban atau pembaca layar.
+  const craftOpen = openParts(missionsDone);
 
   // References to keep mutable objects across re-renders
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -200,9 +207,9 @@ export const ThreeGarden: React.FC<ThreeGardenProps> = ({
           else obj.material.dispose();
         }
       }
-      buildThemeScene(activeGroupRef.current, currentTheme, streakCount, completedTodayCount, partnerCompletedTodayCount, unlockedDecorations);
+      buildThemeScene(activeGroupRef.current, currentTheme, streakCount, completedTodayCount, partnerCompletedTodayCount, unlockedDecorations, missionsDone);
     }
-  }, [currentTheme, streakCount, completedTodayCount, partnerCompletedTodayCount, unlockedDecorations]);
+  }, [currentTheme, streakCount, completedTodayCount, partnerCompletedTodayCount, unlockedDecorations, missionsDone]);
 
   const resetCamera = () => {
     if (controlsRef.current) {
@@ -219,7 +226,9 @@ export const ThreeGarden: React.FC<ThreeGardenProps> = ({
         role="img"
         aria-label={`Taman pertumbuhan kalian: streak ${streakCount} hari, ${
           completedTodayCount + partnerCompletedTodayCount
-        } kebiasaan tuntas hari ini`}
+        } kebiasaan tuntas hari ini, pohon punya ${craftOpen.length} dari ${
+          TREE_PARTS.length
+        } pelengkap setelah ${missionsDone} misi tuntas`}
         className="w-full h-full cursor-grab active:cursor-grabbing"
       />
 
@@ -233,6 +242,12 @@ export const ThreeGarden: React.FC<ThreeGardenProps> = ({
         </div>
         <p className="text-[11px] text-stone-500 dark:text-stone-400 px-2">
           {completedTodayCount + partnerCompletedTodayCount} habit tuntas hari ini
+        </p>
+        <p
+          data-craft={`${missionsDone} misi tuntas · ${craftOpen.length}/${TREE_PARTS.length} pelengkap`}
+          className="text-[11px] font-semibold text-amber-700 dark:text-amber-300 px-2"
+        >
+          {craftOpen.length}/{TREE_PARTS.length} pelengkap pohon · {missionsDone} misi tuntas
         </p>
       </div>
 
@@ -340,12 +355,13 @@ function buildThemeScene(
   streak: number,
   completedA: number,
   completedB: number,
-  unlockedDecorations: IslandDecorationId[] = []
+  unlockedDecorations: IslandDecorationId[] = [],
+  missions = 0
 ) {
   if (theme === 'island') {
-    buildIslandScene(group, streak, completedA, completedB, unlockedDecorations);
+    buildIslandScene(group, streak, completedA, completedB, unlockedDecorations, missions);
   } else if (theme === 'bonsai') {
-    buildBonsaiTree(group, streak, completedA, completedB);
+    buildBonsaiTree(group, streak, completedA, completedB, missions);
   } else if (theme === 'galaxy') {
     buildGalaxyScene(group, streak, completedA, completedB);
   } else {
@@ -354,7 +370,7 @@ function buildThemeScene(
 }
 
 // 1. Procedural Bonsai Tree of Growth
-function buildBonsaiTree(group: THREE.Group, streak: number, completedA: number, completedB: number) {
+function buildBonsaiTree(group: THREE.Group, streak: number, completedA: number, completedB: number, missions = 0) {
   // Pot (Primary Silhouette)
   const potGeo = new THREE.CylinderGeometry(0.85, 0.65, 0.6, 32);
   const potMat = new THREE.MeshStandardMaterial({
@@ -479,6 +495,16 @@ function buildBonsaiTree(group: THREE.Group, streak: number, completedA: number,
     );
     group.add(flower);
   }
+
+  addCraftParts(group, openPartIds(missions), {
+    groundY: 0.62,
+    baseY: 0.58,
+    groundR: 0.5,
+    canopyX: 0.05,
+    canopyY: 2.05,
+    canopyZ: 0.08,
+    canopyR: 0.6,
+  });
 }
 
 // 2. Procedural Galaxy of Shared Moments
@@ -651,7 +677,8 @@ function buildIslandScene(
   streak: number,
   completedA: number,
   completedB: number,
-  unlockedDecorations: IslandDecorationId[] = []
+  unlockedDecorations: IslandDecorationId[] = [],
+  missions = 0
 ) {
   // A. Floating Island Base
   // 1. Rocky Crags Cone (pointing down)
@@ -698,6 +725,11 @@ function buildIslandScene(
     metalness: 0.05,
   });
 
+  // Jangkar tajuk pohon. Elemen pelengkap dari misi yang tuntas menempel di sini,
+  // tiap tahap mengisi nilainya sendiri supaya akar, bunga, dan burung selalu
+  // mengikuti ukuran pohon yang sedang tampil.
+  const canopy = { x: 0, y: 1.28, z: 0, r: 0.3 };
+
   if (streak < 4) {
     // Stage 1: Sprout (Bibit Tunas)
     const stemCurve = new THREE.CatmullRomCurve3([
@@ -737,6 +769,9 @@ function buildIslandScene(
     crown.position.set(-0.05, 1.85, 0);
     crown.castShadow = true;
     group.add(crown);
+    canopy.x = -0.05;
+    canopy.y = 1.85;
+    canopy.r = 0.55;
   } else if (streak < 19) {
     // Stage 3: Lush Tree (Pohon Rimbun)
     const trunkCurve = new THREE.CatmullRomCurve3([
@@ -754,6 +789,10 @@ function buildIslandScene(
     crown.position.set(0.05, 2.3, 0.02);
     crown.castShadow = true;
     group.add(crown);
+    canopy.x = 0.05;
+    canopy.y = 2.3;
+    canopy.z = 0.02;
+    canopy.r = 0.72;
 
     const foliageLeft = new THREE.Mesh(new THREE.DodecahedronGeometry(0.48, 1), foliageMat);
     foliageLeft.position.set(-0.55, 1.95, 0.3);
@@ -795,6 +834,10 @@ function buildIslandScene(
     crown.position.set(0.1, 2.45, 0.05);
     crown.castShadow = true;
     group.add(crown);
+    canopy.x = 0.1;
+    canopy.y = 2.45;
+    canopy.z = 0.05;
+    canopy.r = 0.85;
 
     const crownL = new THREE.Mesh(new THREE.DodecahedronGeometry(0.6, 1), sakuraMat);
     crownL.position.set(-0.7, 2.1, 0.35);
@@ -806,6 +849,17 @@ function buildIslandScene(
     crownR.castShadow = true;
     group.add(crownR);
   }
+
+  // B2. Pelengkap pohon: satu bagian baru tiap ambang misi yang tuntas.
+  addCraftParts(group, openPartIds(missions), {
+    groundY: 0.77,
+    baseY: 0.77,
+    groundR: 1.35,
+    canopyX: canopy.x,
+    canopyY: canopy.y,
+    canopyZ: canopy.z,
+    canopyR: canopy.r,
+  });
 
   // C. Two Interactive Couple Lanterns
   // 1. Partner A (Rama) Lantern - Left side (-1.3, 0.77, 0.3)
@@ -973,5 +1027,216 @@ function buildIslandScene(
     const catHead = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 10), catMat);
     catHead.position.set(0.56, 0.86, 0.35);
     group.add(catHead);
+  }
+}
+
+interface CraftAnchor {
+  groundY: number;
+  baseY: number;
+  // Jari-jari tanah tempat bagian berpijak — pot bonsai lebih sempit daripada pulau.
+  groundR: number;
+  canopyX: number;
+  canopyY: number;
+  canopyZ: number;
+  canopyR: number;
+}
+
+/**
+ * Elemen pelengkap pohon: tiap ambang misi yang tuntas menambah satu bagian.
+ *
+ * Semuanya diukur dari jangkar tajuk, jadi bibit setinggi dengkul dan sakura
+ * pusaka menerima bagian yang sama di tempat yang wajar. Posisinya dihitung,
+ * bukan acak — dua ponsel wajib melihat pohon yang persis sama.
+ */
+function addCraftParts(group: THREE.Group, open: TreePartId[], a: CraftAnchor) {
+  const has = (id: TreePartId) => open.includes(id);
+  const trunkY = (f: number) => a.baseY + (a.canopyY - a.baseY) * f;
+  // Titik di kulit tajuk, tersebar merata lewat sudut emas.
+  const shell = (i: number, n: number, scale = 1.03) => {
+    const phi = Math.acos(1 - (2 * (i + 0.5)) / n);
+    const theta = Math.PI * (1 + Math.sqrt(5)) * (i + 0.5);
+    const r = a.canopyR * scale;
+    return new THREE.Vector3(
+      a.canopyX + r * Math.sin(phi) * Math.cos(theta),
+      a.canopyY + r * Math.cos(phi),
+      a.canopyZ + r * Math.sin(phi) * Math.sin(theta)
+    );
+  };
+  const wood = new THREE.MeshStandardMaterial({ color: 0x6b4a2f, roughness: 0.9 });
+
+  if (has('roots')) {
+    for (let i = 0; i < 4; i++) {
+      const ang = (i / 4) * Math.PI * 2 + 0.5;
+      const root = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), wood);
+      root.scale.set(1.5, 0.35, 0.55);
+      root.position.set(Math.cos(ang) * 0.26, a.groundY - 0.02, Math.sin(ang) * 0.26);
+      root.rotation.y = -ang;
+      group.add(root);
+    }
+  }
+
+  if (has('moss')) {
+    const mossMat = new THREE.MeshStandardMaterial({ color: 0x5f8b63, roughness: 0.95, flatShading: true });
+    for (const [f, dx, dz] of [[0.42, 0.09, 0.05], [0.55, -0.08, 0.04], [0.68, 0.03, -0.09]] as const) {
+      const patch = new THREE.Mesh(new THREE.DodecahedronGeometry(0.07, 0), mossMat);
+      patch.scale.set(1.4, 0.5, 1);
+      patch.position.set(dx, trunkY(f), dz);
+      group.add(patch);
+    }
+  }
+
+  if (has('sprigs')) {
+    for (const side of [-1, 1]) {
+      const curve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(0, trunkY(0.62), 0),
+        new THREE.Vector3(side * 0.32, trunkY(0.74), 0.12),
+        new THREE.Vector3(side * 0.6, trunkY(0.82), 0.2),
+      ]);
+      const branch = new THREE.Mesh(new THREE.TubeGeometry(curve, 10, 0.035, 6, false), wood);
+      branch.castShadow = true;
+      group.add(branch);
+    }
+  }
+
+  if (has('leafTufts')) {
+    const tuftMat = new THREE.MeshStandardMaterial({ color: 0x6bb57e, roughness: 0.6, flatShading: true });
+    for (const p of [
+      new THREE.Vector3(-0.62, trunkY(0.84), 0.22),
+      new THREE.Vector3(0.62, trunkY(0.86), -0.2),
+      new THREE.Vector3(a.canopyX, a.canopyY + a.canopyR * 1.05, a.canopyZ),
+    ]) {
+      const tuft = new THREE.Mesh(new THREE.DodecahedronGeometry(0.15, 1), tuftMat);
+      tuft.position.copy(p);
+      tuft.castShadow = true;
+      group.add(tuft);
+    }
+  }
+
+  if (has('blossoms')) {
+    const bloomMat = new THREE.MeshStandardMaterial({
+      color: 0xfff1d6,
+      emissive: 0xf7c873,
+      emissiveIntensity: 0.2,
+      roughness: 0.45,
+    });
+    for (let i = 0; i < 12; i++) {
+      const bloom = new THREE.Mesh(new THREE.OctahedronGeometry(0.06, 0), bloomMat);
+      bloom.position.copy(shell(i, 12));
+      group.add(bloom);
+    }
+  }
+
+  if (has('fruits')) {
+    const fruitMat = new THREE.MeshStandardMaterial({
+      color: 0xd97706,
+      emissive: 0x92400e,
+      emissiveIntensity: 0.3,
+      roughness: 0.4,
+    });
+    for (let i = 0; i < 6; i++) {
+      const ang = (i / 6) * Math.PI * 2;
+      const fruit = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), fruitMat);
+      fruit.position.set(
+        a.canopyX + Math.cos(ang) * a.canopyR * 0.8,
+        a.canopyY - a.canopyR * 0.72,
+        a.canopyZ + Math.sin(ang) * a.canopyR * 0.8
+      );
+      group.add(fruit);
+    }
+  }
+
+  if (has('nest')) {
+    const nest = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.045, 8, 14), wood);
+    nest.rotation.x = Math.PI / 2;
+    nest.position.set(a.canopyX + a.canopyR * 0.72, a.canopyY - a.canopyR * 0.2, a.canopyZ + a.canopyR * 0.42);
+    group.add(nest);
+    const eggMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.5 });
+    for (let i = 0; i < 2; i++) {
+      const egg = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 8), eggMat);
+      egg.position.set(nest.position.x + (i === 0 ? -0.045 : 0.045), nest.position.y + 0.05, nest.position.z);
+      group.add(egg);
+    }
+  }
+
+  if (has('vines')) {
+    const vineMat = new THREE.MeshStandardMaterial({ color: 0x3f7d58, roughness: 0.8 });
+    for (let i = 0; i < 3; i++) {
+      const ang = (i / 3) * Math.PI * 2 + 0.9;
+      const x = a.canopyX + Math.cos(ang) * a.canopyR * 0.88;
+      const z = a.canopyZ + Math.sin(ang) * a.canopyR * 0.88;
+      const topY = a.canopyY - a.canopyR * 0.3;
+      const len = 0.45 + i * 0.14;
+      const curve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(x, topY, z),
+        new THREE.Vector3(x + 0.08, topY - len * 0.6, z - 0.05),
+        new THREE.Vector3(x - 0.04, topY - len, z + 0.06),
+      ]);
+      group.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 10, 0.018, 6, false), vineMat));
+    }
+  }
+
+  if (has('mushrooms')) {
+    const stemMat = new THREE.MeshStandardMaterial({ color: 0xf5f0e6, roughness: 0.7 });
+    const capMat = new THREE.MeshStandardMaterial({ color: 0xe06d53, roughness: 0.6 });
+    for (let i = 0; i < 5; i++) {
+      const ang = (i / 5) * Math.PI * 2 + 1.2;
+      const dist = a.groundR * (0.85 + (i % 3) * 0.1);
+      const x = Math.cos(ang) * dist;
+      const z = Math.sin(ang) * dist;
+      const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.03, 0.1, 8), stemMat);
+      stem.position.set(x, a.groundY + 0.04, z);
+      group.add(stem);
+      const cap = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.06, 10), capMat);
+      cap.position.set(x, a.groundY + 0.12, z);
+      group.add(cap);
+    }
+  }
+
+  if (has('fireflies')) {
+    const glowMat = new THREE.MeshBasicMaterial({ color: 0xffe066 });
+    for (let i = 0; i < 12; i++) {
+      const ang = (i / 12) * Math.PI * 2;
+      const fly = new THREE.Mesh(new THREE.SphereGeometry(0.028, 6, 6), glowMat);
+      fly.position.set(
+        a.canopyX + Math.cos(ang) * (a.canopyR + 0.45),
+        a.canopyY + Math.sin(i * 1.7) * a.canopyR * 0.6,
+        a.canopyZ + Math.sin(ang) * (a.canopyR + 0.45)
+      );
+      group.add(fly);
+    }
+    const glow = new THREE.PointLight(0xffe066, 0.6, 3);
+    glow.position.set(a.canopyX, a.canopyY, a.canopyZ);
+    group.add(glow);
+  }
+
+  if (has('birds')) {
+    const perchY = a.canopyY + a.canopyR * 0.92;
+    for (const b of [{ dx: -0.14, color: 0x60a5fa }, { dx: 0.16, color: 0xf59e0b }]) {
+      const birdMat = new THREE.MeshStandardMaterial({ color: b.color, roughness: 0.6 });
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.075, 10, 8), birdMat);
+      body.scale.set(1.2, 0.9, 0.8);
+      body.position.set(a.canopyX + b.dx, perchY, a.canopyZ);
+      group.add(body);
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 8), birdMat);
+      head.position.set(a.canopyX + b.dx + (b.dx < 0 ? -0.06 : 0.06), perchY + 0.07, a.canopyZ);
+      group.add(head);
+      const beak = new THREE.Mesh(
+        new THREE.ConeGeometry(0.018, 0.04, 6),
+        new THREE.MeshStandardMaterial({ color: 0xfde047, roughness: 0.5 })
+      );
+      beak.rotation.z = b.dx < 0 ? Math.PI / 2 : -Math.PI / 2;
+      beak.position.set(head.position.x + (b.dx < 0 ? -0.05 : 0.05), perchY + 0.07, a.canopyZ);
+      group.add(beak);
+    }
+  }
+
+  if (has('crown')) {
+    const halo = new THREE.Mesh(
+      new THREE.TorusGeometry(a.canopyR * 0.78, 0.025, 8, 24),
+      new THREE.MeshBasicMaterial({ color: 0xffd166 })
+    );
+    halo.rotation.x = Math.PI / 2;
+    halo.position.set(a.canopyX, a.canopyY + a.canopyR * 1.3, a.canopyZ);
+    group.add(halo);
   }
 }

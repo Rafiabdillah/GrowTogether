@@ -33,6 +33,7 @@ import {
 import { sound } from '../lib/audio';
 import { friendlyAccountError } from '../lib/authErrors';
 import { coupleStreak, streakAnchor } from '../lib/streak';
+import { coupleMissionsDone } from '../lib/treeCraft';
 import { useGrowNotifications, type GrowNotifications } from '../hooks/useNotifications';
 import { useTelegramRelay, type TelegramRelayApi } from '../hooks/useTelegramRelay';
 import { REPLY_HUG_ACTION, type GrowNotification } from '../lib/growNotifTypes';
@@ -96,6 +97,8 @@ interface AppContextType {
   couple: Couple;
   /** Consecutive days the couple completed something, derived from shared logs. */
   combinedStreak: number;
+  /** Misi tuntas seumur ruangan yang boleh dilihat pasangan — mesin pelengkap pohon. */
+  coupleMissions: number;
   habits: Habit[];
   logs: HabitLog[];
   sessions: FocusSession[];
@@ -701,6 +704,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Reminders and news only make sense once this device is inside a shared room;
   // demo mode has no partner to notify.
   const combinedStreak = coupleStreak(logs, streakAnchor(selectedDate, realToday));
+  // Jumlah misi tuntas seumur ruangan, bukan hanya hari ini: inilah yang membuat
+  // pohon kalian bertambah bagian, jadi kedua ponsel tumbuh dari angka yang sama.
+  const coupleMissions = coupleMissionsDone(logs);
   const hugStats = hugStatsFor(reactions, myUid);
   // Yang dihitung adalah kabar yang masih tampil di antrean layar ini, bukan
   // sekadar seenAt di server: penandanya harus hilang saat kabar ditutup.
@@ -2852,6 +2858,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const value: AppContextType = {
     combinedStreak,
+    coupleMissions,
     authUser,
     isAuthLoading,
     isProfileLoading,
