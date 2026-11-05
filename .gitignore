@@ -8,4 +8,6 @@ coverage/
 *.log
 .env*
 !.env.example
+functions/.secret.local
+
 .kilo/

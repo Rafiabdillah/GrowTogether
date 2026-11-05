@@ -11,8 +11,14 @@
 // aplikasi selalu jalan; aturan ASLI sudah dibuktikan per-dokumen di qa-rules.cjs.
 // Privasi di sini yang diuji adalah perilaku aplikasi: apakah baris privat benar-benar
 // tidak muncul di layar pasangan.
+//
+// Semua tulisan aplikasi berjalan di latar belakang, jadi dua hal yang dipakai sebagai
+// saksi: REST emulator (isi database, tanpa SDK tes dan tanpa aturan) untuk membuktikan
+// barisnya benar-benar mendarat, dan panel "Log aktivitas sinkron" milik perangkat untuk
+// membedakan "server menolak" dari "masih dalam perjalanan".
 const { spawn } = require('node:child_process');
 const net = require('node:net');
+const http = require('node:http');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -94,6 +100,14 @@ async function waitForPort(port, timeoutMs = 180000) {
   }
   return false;
 }
+async function waitForFreePort(port, timeoutMs = 90000) {
+  const deadline = Date.now() + timeoutMs;
+  while (await portOpen(port)) {
+    if (Date.now() > deadline) return false;
+    await sleep(2000);
+  }
+  return true;
+}
 
 class Connection {
   constructor(ws) {
@@ -112,13 +126,29 @@ class Connection {
         this.onEvent(message.method, message.params, message.sessionId);
       }
     });
+    // Koneksi bisa hilang tanpa aba-aba (laptop tidur, Chrome ditutup, jaringan
+    // putus) dan WebSocket tidak selalu mengirim peristiwa penutupan. Tanpa dua
+    // penjaga ini, harness hanya diam menggantung berjam-jam alih-alih gagal.
+    const drop = (reason) => {
+      for (const [, waiter] of [...this.waiting]) waiter.reject(new Error(`CDP ${reason}`));
+      this.waiting.clear();
+    };
+    ws.addEventListener('close', () => drop('terputus'));
+    ws.addEventListener('error', () => drop('galat koneksi'));
   }
-  send(method, params = {}, sessionId) {
+  send(method, params = {}, sessionId, timeoutMs = 90000) {
     const id = ++this.nextId;
     const payload = { id, method, params };
     if (sessionId) payload.sessionId = sessionId;
     return new Promise((resolve, reject) => {
-      this.waiting.set(id, { resolve, reject, method });
+      const timer = setTimeout(() => {
+        if (this.waiting.delete(id)) reject(new Error(`${method} tidak menjawab dalam ${timeoutMs} ms`));
+      }, timeoutMs);
+      this.waiting.set(id, {
+        resolve: (value) => { clearTimeout(timer); resolve(value); },
+        reject: (error) => { clearTimeout(timer); reject(error); },
+        method,
+      });
       this.ws.send(JSON.stringify(payload));
     });
   }
@@ -149,7 +179,15 @@ async function makeDevice(label, cdpPort, width, navWhere, navLabels) {
     const chrome = spawn(
       CHROME,
       ['--headless=new', `--remote-debugging-port=${cdpPort}`, `--user-data-dir=${profile}`, '--no-first-run',
-        '--no-default-browser-check', '--disable-gpu', '--mute-audio', 'about:blank'],
+        '--no-default-browser-check', '--disable-gpu', '--mute-audio',
+        // Tab yang sedang di latar dihukum Chrome dengan membatasi timer, dan
+        // Firestore menjadwalkan aliran datanya lewat timer. Tanpa flag ini, kabar
+        // pasangan bisa baru tampak 60+ detik kemudian — itu hukuman desktop, bukan
+        // perilaku aplikasi. "HP tertutup" yang sesungguhnya tetap diuji lewat
+        // visibilityState yang dipaksa hidden + notifikasi sistem.
+        '--disable-background-timer-throttling', '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding',
+        'about:blank'],
       { stdio: 'ignore' }
     );
     children.push(chrome);
@@ -373,9 +411,71 @@ async function closeSettings(dev) {
   await sleep(300);
 }
 
+// Beda paling penting saat sebuah tulisan tidak sampai ke server: aturan yang
+// MENOLAK, atau hanya lambat. Aplikasi mencatat keduanya di panel Sinkronisasi,
+// jadi baca dari sana alih-alih menebak.
+async function syncTrail(dev) {
+  await openSettings(dev, 'Sinkronisasi');
+  const rows = await dev.t(`(() => { const d = document.querySelector('[role="dialog"]'); if (!d) return 'TANPA-DIALOG';
+    const h = [...d.querySelectorAll('h4')].find((x) => x.textContent.includes('Log aktivitas sinkron'));
+    if (!h) return 'TANPA-PANEL-LOG';
+    return h.parentElement.parentElement.innerText.replace(/\\s+/g, ' ').trim().slice(0, 700); })()`);
+  await closeSettings(dev);
+  return rows;
+}
+
 async function findUserBy(name) {
   const snap = await f.getDocs(f.collection(dbAdmin, 'users'));
   return snap.docs.find((d) => (d.data().displayName || '') === name);
+}
+
+// Saksi independen untuk tulisan yang "tidak sampai": REST emulator membaca isi
+// database tanpa SDK klien dan tanpa aturan, jadi ia bisa membedakan "browser
+// tidak pernah mengirim" dari "pembacaan tes yang sedang basi".
+const nilaiRest = (v) => {
+  if (!v || typeof v !== 'object') return '';
+  if ('stringValue' in v) return v.stringValue;
+  if ('booleanValue' in v) return v.booleanValue;
+  if ('integerValue' in v) return Number(v.integerValue);
+  if ('doubleValue' in v) return v.doubleValue;
+  if ('nullValue' in v) return null;
+  if (v.mapValue) {
+    return Object.fromEntries(Object.entries(v.mapValue.fields || {}).map(([k, x]) => [k, nilaiRest(x)]));
+  }
+  if (v.arrayValue) return (v.arrayValue.values || []).map(nilaiRest);
+  return JSON.stringify(v);
+};
+function restDocs(collection) {
+  return new Promise((resolve) => {
+    const req = http.request(
+      {
+        host: '127.0.0.1',
+        port: 8899,
+        method: 'GET',
+        path: `/v1/projects/${PROJECT}/databases/(default)/documents/${collection}?pageSize=300`,
+        headers: { authorization: 'Bearer owner' },
+      },
+      (res) => {
+        let body = '';
+        res.on('data', (c) => { body += c; });
+        res.on('end', () => {
+          try {
+            const docs = (JSON.parse(body).documents || []).map((d) => {
+              const fields = d.fields || {};
+              const out = { id: d.name.split('/').pop() };
+              for (const [k, v] of Object.entries(fields)) out[k] = nilaiRest(v);
+              return out;
+            });
+            resolve({ docs });
+          } catch (err) {
+            resolve({ err: String(err.message || err).slice(0, 120), body: body.slice(0, 160) });
+          }
+        });
+      }
+    );
+    req.on('error', (err) => resolve({ err: String(err.message || err).slice(0, 120) }));
+    req.end();
+  });
 }
 
 const phases = [];
@@ -552,13 +652,27 @@ phase('habit & privasi di dua layar', async () => {
   const bMarked = await B.wait(`(() => { const b=[...document.querySelectorAll('button')].find(x => (x.getAttribute('aria-label')||'').includes('Batalkan: Olahar Pagi QA')); return !!b; })()`, 20000);
   await sleep(3000);
   const aStillUntouched = await A.t(`(() => { const b=[...document.querySelectorAll('button')].find(x => (x.getAttribute('aria-label')||'').includes('Tandai selesai: Olahar Pagi QA')); return b ? 'belum-sentuh' : 'sudah-sentuh'; })()`);
-  const logRowsA = (await f.getDocs(f.query(f.collection(dbAdmin, 'logs'),
-    f.where('coupleId', '==', A.coupleId), f.where('userId', '==', A.uid)))).docs;
-  const logRowsB = (await f.getDocs(f.query(f.collection(dbAdmin, 'logs'),
-    f.where('coupleId', '==', A.coupleId), f.where('userId', '==', B.uid)))).docs;
+  // Tulisan berjalan di latar belakang, jadi membaca sekali pada detik ke-3 hanya
+  // akan menuduh latensi. Saksinya REST emulator (bukan SDK tes yang bisa basi),
+  // dan kalau baris B tidak pernah muncul, jejak sinkron B mencatat sebabnya.
+  const ringkas = (d) => ({ id: d.id, userId: (d.userId || '').slice(0, 8), coupleId: (d.coupleId || '').slice(0, 22), vis: d.visibility, selesai: d.completed });
+  let restLog = { docs: [], err: 'belum-baca' };
+  const lDeadline = Date.now() + 30000;
+  for (;;) {
+    restLog = await restDocs('logs');
+    if (restLog.err || (restLog.docs || []).some((d) => d.userId === B.uid)) break;
+    if (Date.now() > lDeadline) break;
+    await sleep(2000);
+  }
+  const barisB = restLog.err ? [] : restLog.docs.filter((d) => d.userId === B.uid);
+  const barisA = restLog.err ? [] : restLog.docs.filter((d) => d.userId === A.uid);
+  const sdkB = restLog.err ? 'n/a' : (await f.getDocs(f.query(f.collection(dbAdmin, 'logs'),
+    f.where('coupleId', '==', A.coupleId), f.where('userId', '==', B.uid)))).docs.length;
+  const jejakB = barisB.length ? '' : await syncTrail(B);
   check('centang B atas habit bersama hanya menyelesaikan milik B, bukan milik A',
-    tickOnB === 'ok' && bMarked && aStillUntouched === 'belum-sentuh' && logRowsA.length === 0 && logRowsB.length >= 1,
-    { tickOnB, bMarked, aStillUntouched, logA: logRowsA.length, logB: logRowsB.length });
+    tickOnB === 'ok' && bMarked && aStillUntouched === 'belum-sentuh' && barisA.length === 0 && barisB.length >= 1,
+    { tickOnB, bMarked, aStillUntouched, logA: barisA.length, logB: barisB.length,
+      restErr: restLog.err || null, semuaLog: (restLog.docs || []).map(ringkas).slice(0, 8), sdkTahuBaris: sdkB, jejakSinkronB: jejakB });
 });
 
 phase('XP, streak, dan reaksi', async () => {
@@ -662,16 +776,23 @@ phase('XP, streak, dan reaksi', async () => {
 
   // Tanda baca: penerima menulis seenAt, jadi pengirim tahu pelukannya benar-benar
   // dibuka — dan kalau tidak, itu bukan salah aplikasinya tapi salah izin HP.
+  // Tanda baca: saksi REST juga, supaya yang diukur adalah isi database dan bukan
+  // cache klien tes.
   let openedAt = '';
+  let reDocs = [];
+  let reErr = null;
   const oDeadline = Date.now() + 70000;
   while (Date.now() < oDeadline && !openedAt) {
-    const docs = (await f.getDocs(f.query(f.collection(dbAdmin, 'reactions'),
-      f.where('coupleId', '==', A.coupleId)))).docs;
-    const punyaA = docs.find((d) => d.data().senderId === A.uid);
-    openedAt = punyaA ? (punyaA.data().seenAt || '') : '';
+    const res = await restDocs('reactions');
+    reErr = res.err || null;
+    reDocs = (res.docs || []).map((d) => ({ id: d.id, pengirim: (d.senderId || '').slice(0, 8), penerima: (d.receiverId || '').slice(0, 8), emoji: d.emoji, adaSeenAt: !!d.seenAt }));
+    const punyaA = (res.docs || []).find((d) => d.senderId === A.uid);
+    openedAt = punyaA ? String(punyaA.seenAt || '') : '';
     if (!openedAt) await sleep(1500);
   }
-  check('perangkat B mencatat tanda baca "sudah dibuka" di server', !!openedAt, openedAt || 'belum ada seenAt');
+  const jejakSeen = openedAt ? '' : await syncTrail(B);
+  check('perangkat B mencatat tanda baca "sudah dibuka" di server', !!openedAt,
+    openedAt || { alasan: 'belum ada seenAt', restErr: reErr, reaksiDiServer: reDocs.slice(0, 6), idB: (B.uid || '').slice(0, 8), jejakSinkronB: jejakSeen });
   const chipDibuka = await A.wait(`(() => { const b = document.querySelector('[data-hug-burst]');
     return !!b && b.innerText.includes('Dibuka pasanganmu'); })()`, 70000);
   check('layar pengirim berubah menjadi "Dibuka pasanganmu"', chipDibuka, { chip: await A.t(`(() => { const b = document.querySelector('[data-hug-burst]'); return b ? b.innerText.replace(/\\s+/g, ' ').trim() : 'TANPA-BURST'; })()`) });
@@ -736,11 +857,60 @@ phase('pelukan: balasan & kabar tertinggal', async () => {
       return d ? d.innerText.replace(/\\s+/g, ' ').trim().slice(0, 600) : 'TANPA-KARTU-SALURAN'; })()`);
     const log = await A.t(`(() => { const d = document.querySelector('[data-notif-log]');
       return d ? d.innerText.replace(/\\s+/g, ' ').trim().slice(0, 400) : 'TANPA-JEJAK'; })()`);
+    const pushCard = await A.t(`(() => { const d = document.querySelector('[data-notif-push]');
+      return d ? d.getAttribute('data-notif-push') + '::' + d.innerText.replace(/\\s+/g, ' ').trim().slice(0, 300) : 'TANPA-KARTU-PUSH'; })()`);
+    const pushApi = await A.t(`'PushManager' in navigator`);
     await closeSettings(A);
-    return { dites, rows, log };
+    return { dites, rows, log, pushCard, pushApi };
   })();
-  check('pengaturan menyebut jujur batas pengirim push dari server', /Kabar saat HP pasangan tertutup/.test(channelCard.rows) && /pengirim push/.test(channelCard.rows), channelCard);
+  check(
+    'pengaturan menjelaskan kanal push apa adanya di tabel saluran',
+    /Alamat perangkat terdaftar di server push/.test(channelCard.rows)
+      && /Kabar saat HP tertutup/.test(channelCard.rows)
+      && !/belum — perlu pengirim push dari server/.test(channelCard.rows),
+    channelCard.rows
+  );
   check('tes notifikasi tercatat di jejak pengiriman perangkat', channelCard.dites === 'ok' && channelCard.log !== 'TANPA-JEJAK', { dites: channelCard.dites, log: channelCard.log });
+
+  // Kartu push: perangkat harus sudah menyerahkan alamatnya ke server, atau
+  // mengatakan kenapa belum. Alamat yang benar-benar terdaftar harus terbaca di
+  // Firestore dengan bentuk yang dipakai fungsi pengirim (ownerId + keys + prefs).
+  let subDocs = [];
+  const subDeadline = Date.now() + 30000;
+  while (Date.now() < subDeadline) {
+    const docs = (await f.getDocs(f.query(f.collection(dbAdmin, 'pushSubscriptions'),
+      f.where('ownerId', '==', A.uid)))).docs;
+    subDocs = docs.map((d) => {
+      const data = d.data();
+      return {
+        service: String(data.endpoint || '').replace(/^https:\/\//, '').slice(0, 34),
+        kunci: !!(data.keys && data.keys.p256dh && data.keys.auth),
+        jenis: Object.keys(data.prefs || {}).length,
+      };
+    });
+    if (subDocs.length) break;
+    await sleep(2000);
+  }
+  console.log('DIAG langganan push perangkat A:', JSON.stringify({ pushCard: channelCard.pushCard, subDocs, pushApi: channelCard.pushApi }));
+  check('kartu kanal push ada dan menjelaskan keadaannya', channelCard.pushCard !== 'TANPA-KARTU-PUSH', { pushCard: channelCard.pushCard });
+  if (channelCard.pushApi === true && !channelCard.pushCard.startsWith('subscribed')) {
+    // Build ini membawa kunci (dibuktikan oleh build itu sendiri), jadi menyalahkan
+    // paket aplikasi saat browser yang mampu berarti kartu sedang berbohong.
+    check(
+      'kalau browsernya mampu, kartu tidak menyalahkan build atas belum berlangganan',
+      !/tidak membawa kunci push/.test(channelCard.pushCard),
+      { pushApi: channelCard.pushApi, pushCard: channelCard.pushCard.slice(0, 130) }
+    );
+  }
+  if (channelCard.pushCard.startsWith('subscribed')) {
+    check('alamat push perangkat benar-benar tersimpan di server', subDocs.length >= 1 && subDocs.every((s) => s.kunci && s.jenis === 6), { subDocs });
+  } else {
+    check(
+      'kalau belum berlangganan, kartu menyebut alasannya alih-alih pura-pura siap',
+      /belum|tidak|kunci|tolak/i.test(channelCard.pushCard),
+      { pushCard: channelCard.pushCard.slice(0, 140) }
+    );
+  }
 
   // Kirim dari layar pasangan sementara B benar-benar di latar (ponsel dikantongi).
   await B.decoy(true);
@@ -1133,35 +1303,64 @@ phase('taman, cuaca, dan toko dekorasi', async () => {
   const openShop = await A.clickIncludes('Toko Dekorasi (900 XP)');
   const upModal = await A.text('XP Pasangan Saat Ini', 15000);
   check('modal toko terbuka dari taman', openShop === 'ok' && upModal, { openShop, upModal });
-  await A.click(`[...document.querySelectorAll('[role="dialog"] button')].find(b => b.textContent.includes('Buka 200 XP'))`);
-  const statusA = await A.t(`(() => { const p = document.querySelector('[role="dialog"] p[role="status"]'); return p ? p.textContent : ''; })()`);
-  const dropB = await B.wait(`(() => { const b = [...document.querySelectorAll('button')].find(x => x.textContent.includes('Toko Dekorasi')); return !!b && b.textContent.includes('(700 XP)'); })()`, 25000);
-  check('beli dekorasi 200 XP → saldo jadi 700 XP di perangkat lain', dropB, { statusA, store: (await B.state()).decor });
-  const serverCouple = (await f.getDoc(f.doc(dbAdmin, 'couples', A.coupleId))).data();
-  check('server menyimpan XP 700 dan 1 dekorasi terbuka', serverCouple.levelXp === 700 && (serverCouple.unlockedDecorations || []).length === 1, { xp: serverCouple.levelXp, decor: serverCouple.unlockedDecorations });
+  const hasilKlikBeli = await A.click(`[...document.querySelectorAll('[role="dialog"] button')].find(b => b.textContent.includes('Buka 200 XP'))`);
+  // Pembelian berjalan sebagai transaksi: status modal baru terisi setelah server
+  // menjawab, dan saldo yang benar dibaca di database — bukan di layar saja.
+  let statusA = '';
+  const sDeadline = Date.now() + 20000;
+  while (Date.now() < sDeadline && !statusA) {
+    statusA = await A.t(`(() => [...document.querySelectorAll('p[role="status"]')].map((p) => p.textContent).join(' | ').slice(0, 200))()`);
+    if (!statusA) await sleep(1000);
+  }
+  const dropB = await B.wait(`(() => { const b = [...document.querySelectorAll('button')].find(x => x.textContent.includes('Toko Dekorasi')); return !!b && b.textContent.includes('(700 XP)'); })()`, 40000);
+  let ruangServer = {};
+  const xDeadline = Date.now() + 45000;
+  for (;;) {
+    const res = await restDocs('couples');
+    ruangServer = (res.docs || []).find((d) => d.id === A.coupleId) || { err: res.err || 'ruang-tidak-ketemu' };
+    if (Number(ruangServer.levelXp) === 700 || Date.now() > xDeadline) break;
+    await sleep(1500);
+  }
+  const jejakBeli = dropB ? '' : await syncTrail(A);
+  check('beli dekorasi 200 XP → saldo jadi 700 XP di perangkat lain', hasilKlikBeli === 'ok' && dropB,
+    { hasilKlikBeli, statusA, store: (await B.state()).decor, xpServer: ruangServer.levelXp, jejakSinkronA: jejakBeli });
+  const serverCouple = ruangServer;
+  check('server menyimpan XP 700 dan 1 dekorasi terbuka', Number(serverCouple.levelXp) === 700 && (serverCouple.unlockedDecorations || []).length === 1, { xp: serverCouple.levelXp, decor: serverCouple.unlockedDecorations, statusA });
   await A.esc();
   const shopClosed = await A.wait(`!document.querySelector('[role="dialog"]')`, 15000);
   check('modal toko bisa ditutup dengan Escape', shopClosed);
 
   const gerimis = await A.clickText('🌧️ Gerimis');
-  // Bukti berlapis: server dulu (apakah pilihan itu benar-benar tersimpan untuk
-  // berdua), lalu layar B (apakah tamannya ikut berubah).
+  // Kata 'Gerimis' selalu ada di deretan tombol cuaca, jadi teks layar bukan bukti.
+  // Yang dibaca: tombol mana yang menyala (state aplikasi) dan apa yang ada di
+  // server (isi database). Kombinasi keduanya memisahkan 'klik tidak mengubah
+  // apa-apa' dari 'berubah di sini tapi tulisannya tidak sampai'.
+  const nyalaDi = (dev) => dev.wait(`(() => { const b = [...document.querySelectorAll('button')]
+      .filter((x) => /Cerah|Gerimis|Pelangi/.test(x.textContent));
+      return !!b.find((x) => x.className.includes('bg-stone-900') && x.textContent.includes('Gerimis')); })()`, 8000);
+  const nyalaA = await nyalaDi(A);
   let cuacaServer = '';
-  const wDeadline = Date.now() + 25000;
+  let lamaCuacaMs = -1;
+  // Stream emulator kadang sempat putus (lihat catatan ECONNRESET di log). Aplikasi
+  // mengetahuinya dan mengirim ulang tulisannya, jadi yang diuji adalah 'sampai atau
+  // tidak', bukan 'sampai di bawah 25 detik'.
+  const wDeadline = Date.now() + 60000;
+  const wMulai = Date.now();
   while (Date.now() < wDeadline) {
     cuacaServer = (await f.getDoc(f.doc(dbAdmin, 'couples', A.coupleId))).data().selectedWeather;
-    if (cuacaServer === 'rain') break;
+    if (cuacaServer === 'rain') { lamaCuacaMs = Date.now() - wMulai; break; }
     await sleep(1000);
   }
   const goGardenB = await B.gotoTab('garden');
-  const rainOnB = await B.wait(`(() => document.body.innerText.toLowerCase().includes('gerimis'))()`, 25000);
+  const rainOnB = await nyalaDi(B);
+  const jejakCuaca = cuacaServer === 'rain' ? '' : await syncTrail(A);
   check('cuaca yang dipilih A tersimpan untuk berdua dan tampak di taman B',
     gerimis === 'ok' && cuacaServer === 'rain' && goGardenB && rainOnB,
-    { gerimis, cuacaServer, goGardenB, rainOnB, cuaca: (await B.state()).weather });
+    { gerimis, nyalaA, cuacaServer, lamaCuacaMs, goGardenB, rainOnB, cuacaB: (await B.state()).weather, jejakSinkronA: jejakCuaca });
 
   const malam = await A.clickText('Malam');
   let timeServer = '';
-  const tDeadline = Date.now() + 25000;
+  const tDeadline = Date.now() + 60000;
   while (Date.now() < tDeadline) {
     timeServer = (await f.getDoc(f.doc(dbAdmin, 'couples', A.coupleId))).data().selectedTimeOfDay;
     if (timeServer === 'night') break;
@@ -1286,7 +1485,14 @@ async function main() {
     if (!fs.existsSync(dir)) throw new Error(`${label} tidak ditemukan di ${dir}`);
   }
   if (!fs.existsSync(CHROME)) throw new Error(`Chrome tidak ditemukan di ${CHROME}`);
-  if (!CONNECT && await portOpen(8899)) throw new Error('emulator masih hidup di 8899, matikan dulu');
+  if (!CONNECT) {
+    // Sisa emulator suite lain sering terlihat "bebas" sedetik lalu hidup lagi:
+    // port harus benar-benar kosong sebelum emulator baru dinyalakan. Server
+    // preview sisa run lama juga membuat tes diam-diam menguji build lama.
+    for (const port of [8899, 9199, PORT]) {
+      if (!(await waitForFreePort(port))) throw new Error(`masih ada yang memegang port ${port}, matikan dulu`);
+    }
+  }
   fs.mkdirSync(WORK, { recursive: true });
 
   if (!CONNECT) {
@@ -1303,6 +1509,9 @@ async function main() {
     const ready = (await waitForPort(8899)) && (await waitForPort(9199));
     check('emulator hidup', ready);
     if (!ready) throw new Error('emulator tidak siap');
+    // Port terbuka dulu, gRPC siap menerima belakangan; klien di dalam Chrome
+    // menyerah dalam 10 detik kalau dihubungkan terlalu cepat.
+    await sleep(6000);
   }
 
   const testing = require(`${SYNCTEST}/node_modules/@firebase/rules-unit-testing`);

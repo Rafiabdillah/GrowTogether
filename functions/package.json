@@ -1,0 +1,16 @@
+{
+  "name": "growtogether-functions",
+  "description": "Server-side delivery of GrowTogether news to devices whose app is closed.",
+  "private": true,
+  "version": "1.0.0",
+  "type": "commonjs",
+  "main": "index.js",
+  "engines": {
+    "node": "20"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.1",
+    "firebase-functions": "^6.3.1",
+    "web-push": "^3.6.7"
+  }
+}

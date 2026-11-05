@@ -352,12 +352,20 @@ export const CoupleView: React.FC = () => {
 
       <NotificationGate />
 
-      {partnerUid && notifications.permission === 'granted' && !notifications.channel.offlineReminder && (
+      {partnerUid && notifications.permission === 'granted' && !notifications.push.subscribed && (
         <p className="text-[11px] text-stone-500 dark:text-stone-400 -mt-3 leading-relaxed">
-          Catatan jujur: Kabar pasangan muncul sebagai notifikasi selama aplikasinya masih terbuka di
-          latar belakang. Saat aplikasinya benar-benar ditutup, hanya pengirim push dari server yang
-          bisa membangunkan HP — dan itu belum aktif di paket saat ini. Kabar tetap tertahan di
-          antrean dan langsung muncul begitu aplikasi dibuka.
+          Catatan jujur: selama aplikasi pasangan masih terbuka di latar belakang, kabar langsung
+          masuk. Saat aplikasinya benar-benar ditutup, yang membangunkan HP adalah alamat push
+          perangkat itu — dan alamat tersebut belum terdaftar di perangkatmu. Buka Pengaturan →
+          Notifikasi → hubungkan. Kabarnya sendiri tidak hilang: tetap menunggu di antrean dan muncul
+          begitu aplikasi dibuka lagi.
+        </p>
+      )}
+
+      {partnerUid && notifications.push.subscribed && (
+        <p className="text-[11px] text-stone-500 dark:text-stone-400 -mt-3 leading-relaxed">
+          Perangkat ini sudah terdaftar di layanan push, jadi HP bisa dibangunkan meski aplikasi
+          tertutup total — syaratnya hanya pengirim servernya sudah terpasang di proyek.
         </p>
       )}
 

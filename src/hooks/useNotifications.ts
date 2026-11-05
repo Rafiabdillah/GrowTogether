@@ -25,10 +25,21 @@ import {
 import {
   PERIODIC_SYNC_TAG,
   REPLY_HUG_ACTION,
+  type GrowNotifMessage,
   type GrowNotification,
   type NotifPrefs,
   type NotificationKind,
 } from '../lib/growNotifTypes';
+import {
+  pushConfigured,
+  pushState,
+  registerPush,
+  removePush,
+  syncPushPrefs,
+  verifyPush,
+  type PushOutcome,
+  type PushState,
+} from '../lib/pushSubscription';
 
 export interface NotificationInput {
   /** Signed in, in a room, and not in demo mode: the only state worth notifying for. */
@@ -61,6 +72,11 @@ export interface GrowNotifications {
   setCheckInAt: (value: string) => void;
   setHabitAt: (value: string) => void;
   requestPermission: () => Promise<PermissionState>;
+  /** Publish this device's push address so a closed phone can still be woken. */
+  enablePush: () => Promise<PushOutcome>;
+  /** Drop the address again, server copy included. */
+  disablePush: () => Promise<boolean>;
+  push: PushState;
   notify: (n: GrowNotification, options?: NotifyOptions) => Promise<DeliveryResult>;
   notifyTest: () => Promise<DeliveryResult>;
   lastReminder: { kind: NotificationKind; result: DeliveryResult; at: number } | null;
@@ -206,6 +222,40 @@ export function useGrowNotifications(input: NotificationInput): GrowNotification
     if (!ready) return;
     void setUnreadBadge(unreadNews);
   }, [ready, unreadNews]);
+
+  const [push, setPush] = useState<PushState>(pushState);
+  // The address is handed to the server with whatever switches are current, and
+  // the effect that does it must not restart every time a switch moves.
+  const prefsRef = useRef(prefs);
+  prefsRef.current = prefs;
+
+  const enablePush = useCallback(async (): Promise<PushOutcome> => {
+    const outcome = await registerPush(userId, prefsRef.current);
+    setPush(await verifyPush());
+    return outcome;
+  }, [userId]);
+
+  const disablePush = useCallback(async () => {
+    const removed = await removePush();
+    setPush(pushState());
+    return removed;
+  }, []);
+
+  // Izin notifikasi saja belum cukup: dengan aplikasi tertutup, kabar hanya bisa
+  // datang lewat alamat push yang tersimpan di server atas nama uid perangkat ini.
+  useEffect(() => {
+    if (!ready || permission !== 'granted' || !userId || !pushConfigured()) return;
+    void enablePush().then((outcome) => {
+      if (outcome === 'subscribed') setChannel(channelSnapshot());
+    });
+  }, [enablePush, permission, ready, userId]);
+
+  // Mati-diaktifkannya satu jenis kabar harus sampai ke pengirimnya, atau
+  // "jangan bangunkan aku untuk jurnal" hanya berlaku saat aplikasi terbuka.
+  useEffect(() => {
+    if (!pushState().subscribed) return;
+    void syncPushPrefs(prefs);
+  }, [prefs]);
 
   const notify = useCallback(
     async (n: GrowNotification, options?: NotifyOptions): Promise<DeliveryResult> => {
@@ -409,14 +459,28 @@ export function useGrowNotifications(input: NotificationInput): GrowNotification
     };
     document.addEventListener('visibilitychange', onVisible);
     const onMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'gt:tick') void sweep();
+      const message = event.data as GrowNotifMessage | undefined;
+      if (!message || typeof message !== 'object') return;
+      if (message.type === 'gt:tick') {
+        void sweep();
+        return;
+      }
+      // The push service rotated this device's address; only a page can renew it.
+      if (message.type === 'gt:push-renew') {
+        void enablePush();
+        return;
+      }
+      if (message.type === 'gt:push-received') {
+        recordDelivery(message.notification, 'shown');
+        setLog(readDeliveryLog());
+      }
     };
     navigator.serviceWorker?.addEventListener('message', onMessage);
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
       navigator.serviceWorker?.removeEventListener('message', onMessage);
     };
-  }, [sweep]);
+  }, [enablePush, sweep]);
 
   // A streak that grew since the last visit is worth celebrating once, even if the
   // phone was closed when it happened.
@@ -469,6 +533,9 @@ export function useGrowNotifications(input: NotificationInput): GrowNotification
     setCheckInAt,
     setHabitAt,
     requestPermission,
+    enablePush,
+    disablePush,
+    push,
     notify,
     notifyTest,
     lastReminder,

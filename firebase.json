@@ -2,9 +2,15 @@
   "firestore": {
     "rules": "firestore.rules"
   },
+  "functions": {
+    "source": "functions",
+    "runtime": "nodejs20",
+    "ignore": ["node_modules", ".git*", "*.log", ".env.local"]
+  },
   "emulators": {
     "auth": { "port": 9199 },
     "firestore": { "port": 8899 },
+    "functions": { "port": 9499 },
     "ui": { "enabled": false },
     "singleProjectMode": true
   },

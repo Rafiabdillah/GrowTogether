@@ -83,6 +83,58 @@ npm run deploy:hosting
 
 Tanpa langkah 4, semua baca/tulis ke Firestore akan ditolak dan aplikasi hanya berjalan di mode demo lokal. Tanpa langkah 5, buka aplikasi lewat `npm run dev` atau host `dist/` di layanan HTTPS lain.
 
+## Notifikasi push (aplikasi benar-benar tertutup)
+
+Notifikasi biasa hanya bisa dibangkitkan oleh halaman yang masih hidup. HP yang
+aplikasinya sudah ditutup hanya bisa dibangunkan oleh **server** yang menandatangani
+permintaan dengan kunci privat VAPID, jadi jalur ini butuh Cloud Functions — dan
+Cloud Functions butuh paket **Blaze** (bayar sesuai pemakaian; pemakaian harian
+GrowTogether jauh di bawah batas gratis).
+
+Sekali saja per proyek:
+
+```bash
+# 1. pasang Blaze: https://console.firebase.google.com/project/growtogether-rafiabdillah/usage (Upgrade plan)
+# 2. buat kunci VAPID (jangan pernah commit kunci privatnya)
+cd functions && npm install && node -e "console.log(require('web-push').generateVAPIDKeys())"
+```
+
+Masukkan `publicKey` ke `.env` sebagai `VITE_VAPID_PUBLIC_KEY` (ikut dibundel ke
+aplikasi — memang publik) dan simpan ketiganya di `functions/.secret.local` supaya
+emulator bisa memakainya:
+
+```
+VAPID_PUBLIC_KEY=B...
+VAPID_PRIVATE_KEY=...
+VAPID_SUBJECT=mailto:alamat-yang-bisa-dihubungi@example.com
+```
+
+Lalu pasang. Tiap secret dimasukkan lewat CLI (ia bertanya lalu menyimpan versi
+barunya di Secret Manager, tidak pernah masuk ke repo):
+
+```bash
+npx --yes firebase-tools functions:secrets:set VAPID_PRIVATE_KEY --project growtogether-rafiabdillah
+npx --yes firebase-tools functions:secrets:set VAPID_PUBLIC_KEY  --project growtogether-rafiabdillah
+npx --yes firebase-tools functions:secrets:set VAPID_SUBJECT     --project growtogether-rafiabdillah
+npx --yes firebase-tools deploy --only functions --project growtogether-rafiabdillah
+npm run deploy:rules
+```
+
+Fungsi di `functions/index.js` membaca dokumen baru (pelukan, check-in & jurnal yang
+dibagi, kesepakatan yang menunggu keputusan), lalu mengirim ke **setiap** alamat push
+pasangan. Preferensi jenis kabar ikut tersimpan di dokumen `pushSubscriptions`
+perangkat, jadi jenis yang dimatikan tidak dikirim walau aplikasinya tertutup.
+Alamat yang sudah mati (balasan 404/410) dihapus oleh fungsi yang sama.
+
+Buktikan tanpa menyentuh proyek produksi:
+
+```bash
+npm run test:push     # emulator firestore+auth+functions + layanan push tiruan
+```
+
+Tanpa langkah di atas aplikasi tetap berjalan: kabar masuk saat aplikasi terbuka,
+dan kabar yang datang saat tertutup tetap disambut di antrean begitu dibuka lagi.
+
 ## Deploy ke GitHub Pages
 
 Build untuk subpath `/GrowTogether/` lalu dorong isi `dist/` ke branch `gh-pages`:

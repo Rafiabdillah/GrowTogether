@@ -7,6 +7,8 @@
 //   - pemalsuan identitas (userId/ownerId/creatorId milik orang lain)
 //   - klaim slot pasangan + larangan merebut slot yang sudah terisi
 //   - pointer kode ruang dan ekonomi XP
+//   - alamat push perangkat: hanya pemiliknya yang menulis/membaca/menghapus,
+//     wajib https + kunci enkripsi, dan tidak bisa dipindah ke uid lain
 //   - default deny untuk koleksi yang tidak dikenal + sesi tanpa login
 // Catatan: aturan "list" (query) sengaja hanya dilaporkan sebagai INFO karena
 // emulator lokal menilai klausa list dengan cara yang berbeda dari produksi;
@@ -246,6 +248,17 @@ async function main() {
   check('tidak bisa membuat ruang yang mengaku milik orang lain', mkCoupleOther === 'permission-denied', mkCoupleOther);
 
   say('hak hapus / sunting antar anggota');
+  // Dua tulisan yang harness dua perangkat andalkan: anggota menerbitkan baris
+  // ceklis miliknya sendiri (bentuk persis toggleHabit) dan penerima menandai
+  // pelukan pasangannya sebagai sudah dibuka.
+  const a2OwnLog = await attempt(f.setDoc(f.doc(dbA2, 'logs', `l_tick_${stamp}`), { id: `l_tick_${stamp}`, habitId: 'h_pub', userId: a2, coupleId: roomA, date: '2026-11-05', completed: true, durationMinutes: 20, completedAt: nowIso, visibility: 'couple' }, { merge: true }));
+  check('anggota boleh menerbitkan baris ceklis miliknya sendiri', a2OwnLog === 'OK', a2OwnLog);
+  const a2SeenMark = await attempt(f.setDoc(f.doc(dbA2, 'reactions', 'rc'), { seenAt: nowIso }, { merge: true }));
+  check('penerima boleh mencatat tanda baca pada pelukan untuknya', a2SeenMark === 'OK', a2SeenMark);
+  const a1SeenMark = await attempt(f.setDoc(f.doc(dbA1, 'reactions', 'rc'), { seenAt: nowIso }, { merge: true }));
+  check('pengirim juga boleh menandai reaksinya sendiri dibaca', a1SeenMark === 'OK', a1SeenMark);
+  const b2SeenMark = await attempt(f.setDoc(f.doc(dbB1, 'reactions', 'rc'), { seenAt: nowIso }, { merge: true }));
+  check('anggota ruang lain tidak bisa pura-pura membuka pelukan', b2SeenMark === 'permission-denied', b2SeenMark);
   const a2DelOwn = await attempt(f.deleteDoc(f.doc(dbA2, 'logs', 'l_a2')));
   check('anggota boleh menghapus log miliknya sendiri', a2DelOwn === 'OK', a2DelOwn);
   const a2DelHabit = await attempt(f.deleteDoc(f.doc(dbA2, 'habits', 'h_pub')));
@@ -308,6 +321,45 @@ async function main() {
   check('tidak bisa membaca profil orang di ruang lain', (readOtherRoomProfile.err === 'permission-denied') || readOtherRoomProfile.exists === false, readOtherRoomProfile.err || 'TERBACA');
   const readPartner = await f.getDoc(f.doc(dbA1, 'users', a2)).catch((e) => ({ err: e.code }));
   check('profil pasangan satu ruang bisa dibaca (nama tampil di dua perangkat)', !readPartner.err && readPartner.exists(), readPartner.err || 'exists');
+
+  say('alamat push perangkat (bentuk tulisan persis src/lib/pushSubscription.ts)');
+  const endpointBaik = 'https://fcm.googleapis.com/gcm/send/AAAApushQA-perangkat-satu';
+  const subLengkap = (ownerId, overrides) => ({
+    ownerId,
+    endpoint: endpointBaik,
+    keys: {
+      p256dh: 'BFoUx2m7QF3n9m1Tn7Ux0Uc1E2s8Vd4Rk6pQm3XwZ9AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcde',
+      auth: 'YXV0aC1rZXktMTYtYnl0ZXM=',
+    },
+    prefs: { hug: true, checkin: true, habit: true, agreement: true, journal: true, streak: true },
+    updatedAt: nowIso,
+    ...(overrides || {}),
+  });
+  const subIdA1 = `${a1}-0123456789abcdef0123456789abcdef`;
+  const subIdA2 = `${a2}-fedcba9876543210fedcba9876543210`;
+  const pasangSendiri = await attempt(f.setDoc(f.doc(dbA1, 'pushSubscriptions', subIdA1), subLengkap(a1)));
+  check('perangkat boleh menerbitkan alamat push miliknya sendiri', pasangSendiri === 'OK', pasangSendiri);
+  const pasangAtasNamaPasangan = await attempt(f.setDoc(f.doc(dbA1, 'pushSubscriptions', `${a1}-112233445566778899001122334455ff`), subLengkap(a2)));
+  check('tidak bisa mendaftarkan alamat push atas nama pasangan', pasangAtasNamaPasangan === 'permission-denied', pasangAtasNamaPasangan);
+  const pasangTanpaKunci = await attempt(f.setDoc(f.doc(dbA1, 'pushSubscriptions', `${a1}-aabbccddeeff00112233445566778899`), subLengkap(a1, { keys: { auth: 'YXV0aA==' } })));
+  check('alamat tanpa kunci enkripsi perangkat ditolak', pasangTanpaKunci === 'permission-denied', pasangTanpaKunci);
+  const pasangHttp = await attempt(f.setDoc(f.doc(dbA1, 'pushSubscriptions', `${a1}-00112233445566778899aabbccddeeff`), subLengkap(a1, { endpoint: 'http://127.0.0.1:65001/push/x' })));
+  check('alamat push harus lewat https (layanan push asli selalu begitu)', pasangHttp === 'permission-denied', pasangHttp);
+  const suntingPrefersensi = await attempt(f.setDoc(f.doc(dbA1, 'pushSubscriptions', subIdA1), { prefs: { hug: false } }, { merge: true }));
+  check('pemilik boleh mengubah preferensi perangkatnya (hanya field prefs)', suntingPrefersensi === 'OK', suntingPrefersensi);
+  const pindahMilik = await attempt(f.setDoc(f.doc(dbA1, 'pushSubscriptions', subIdA1), { ownerId: a2 }, { merge: true }));
+  check('alamat push tidak bisa dipindahkan ke uid orang lain', pindahMilik === 'permission-denied', pindahMilik);
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await f.setDoc(f.doc(ctx.firestore(), 'pushSubscriptions', subIdA2), subLengkap(a2, { endpoint: 'https://fcm.googleapis.com/gcm/send/AAAApushQA-perangkat-dua' }));
+  });
+  const bacaAlamatPasangan = await f.getDoc(f.doc(dbA1, 'pushSubscriptions', subIdA2)).catch((e) => ({ err: e.code }));
+  check('pasangan tidak bisa membaca alamat push kita', (bacaAlamatPasangan.err === 'permission-denied') || bacaAlamatPasangan.exists === false, bacaAlamatPasangan.err || 'TERBACA');
+  const ubahAlamatOrang = await attempt(f.setDoc(f.doc(dbA1, 'pushSubscriptions', subIdA2), { prefs: { hug: false } }, { merge: true }));
+  check('tidak bisa menyunting langganan perangkat pasangan', ubahAlamatOrang === 'permission-denied', ubahAlamatOrang);
+  const anonCariAlamat = await f.getDoc(f.doc(dbAnon, 'pushSubscriptions', subIdA1)).catch((e) => ({ err: e.code }));
+  check('alamat push tidak terbaca tanpa login', anonCariAlamat.err === 'permission-denied', anonCariAlamat.err || 'TERBACA');
+  const lepasPunyaSendiri = await attempt(f.deleteDoc(f.doc(dbA2, 'pushSubscriptions', subIdA2)));
+  check('perangkat boleh melepas langganannya sendiri', lepasPunyaSendiri === 'OK', lepasPunyaSendiri);
 
   say('default deny & sesi tanpa login');
   const stray = await attempt(f.setDoc(f.doc(dbA1, 'notifications', `n_${stamp}`), { coupleId: roomA, text: 'x' }));

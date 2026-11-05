@@ -1,7 +1,7 @@
 {
   "name": "growtogether",
   "private": true,
-  "version": "1.2.4",
+  "version": "1.2.5",
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
@@ -10,7 +10,11 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit && tsc --noEmit -p src/tsconfig.sw.json",
     "test:runtime": "node scripts/shop-live.cjs",
+    "test:rules": "node scripts/qa-rules.cjs",
+    "test:push": "node scripts/qa-push.cjs",
+    "test:devices": "node scripts/qa-two-devices.cjs",
     "deploy:rules": "npx --yes firebase-tools deploy --only firestore:rules",
+    "deploy:push": "npx --yes firebase-tools deploy --only functions --project growtogether-rafiabdillah",
     "deploy:hosting": "npm run build && npx --yes firebase-tools deploy --only hosting"
   },
   "dependencies": {

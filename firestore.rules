@@ -337,5 +337,45 @@ service cloud.firestore {
         && existing().userId == request.auth.uid
         && isCoupleMember(existing().coupleId);
     }
+
+    // Push subscriptions: a device's address is written by that device and read
+    // by nobody but its own owner. The partner never looks here — the push
+    // function resolves the couple on the server with admin rights, so a stranger
+    // cannot harvest endpoints by guessing a coupleId.
+    // NB: `matches` has to cover the WHOLE string, so a prefix pattern like
+    // '^https://' rejects every real endpoint; '.*' keeps it a prefix check.
+    match /pushSubscriptions/{subscriptionId} {
+      function ownSubscription() {
+        return isSignedIn()
+          && isValidId(subscriptionId)
+          && 'ownerId' in existing()
+          && existing().ownerId == request.auth.uid;
+      }
+
+      function validSubscription() {
+        return isSignedIn()
+          && incoming().ownerId == request.auth.uid
+          && incoming().endpoint is string
+          && incoming().endpoint.size() > 8
+          && incoming().endpoint.size() <= 1024
+          && incoming().endpoint.matches('^https://.+$')
+          && incoming().keys is map
+          && incoming().keys.p256dh is string
+          && incoming().keys.p256dh.size() <= 256
+          && incoming().keys.auth is string
+          && incoming().keys.auth.size() <= 256
+          && (!('prefs' in incoming()) || incoming().prefs is map);
+      }
+
+      allow get: if ownSubscription();
+      // Paired with where('ownerId', '==', uid) in src/lib/pushSubscription.ts.
+      allow list: if isSignedIn() && 'ownerId' in existing()
+        && existing().ownerId == request.auth.uid;
+      allow create: if validSubscription();
+      allow update: if ownSubscription() && validSubscription();
+      // A dead endpoint is dropped by the browser itself; the function deletes
+      // expired ones with admin rights, which bypass rules entirely.
+      allow delete: if ownSubscription();
+    }
   }
 }

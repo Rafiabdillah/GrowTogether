@@ -6,6 +6,7 @@ import {
   type NotificationKind,
   toNotificationOptions,
 } from './growNotifTypes';
+import { pushState, type PushBlocker } from './pushSubscription';
 
 export type PermissionState = NotificationPermission | 'unsupported';
 export type DeliveryResult = 'shown' | 'duplicate' | 'off' | 'denied' | 'unsupported';
@@ -304,12 +305,18 @@ export interface ChannelSnapshot {
   /** A worker controls the page, which is what makes badging and delivery work. */
   controlled: boolean;
   standalone: boolean;
-  /** Can this browser raise a reminder with the app fully closed? */
-  offlineReminder: boolean;
+  /** A VAPID key ships in this build and the browser can open subscriptions. */
+  pushCapable: boolean;
+  /** Which half is missing when push cannot be used: build key or browser API. */
+  pushBlocker: PushBlocker;
+  /** This device handed its push address to the server, so a closed phone wakes. */
+  pushSubscribed: boolean;
+  /** Which push service holds the address, for the diagnostics table. */
+  pushService: string;
 }
 
 export function channelSnapshot(): ChannelSnapshot {
-  const triggerCtor = 'TimestampTrigger';
+  const push = pushState();
   return {
     apiMissing: !notificationsSupported(),
     permission: currentPermission(),
@@ -317,6 +324,9 @@ export function channelSnapshot(): ChannelSnapshot {
     standalone:
       window.matchMedia?.('(display-mode: standalone)').matches === true ||
       (navigator as Navigator & { standalone?: boolean }).standalone === true,
-    offlineReminder: typeof (window as unknown as Record<string, unknown>)[triggerCtor] === 'function',
+    pushCapable: push.capable,
+    pushBlocker: push.blocker,
+    pushSubscribed: push.subscribed,
+    pushService: push.service,
   };
 }

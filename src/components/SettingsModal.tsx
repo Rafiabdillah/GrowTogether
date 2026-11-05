@@ -29,6 +29,7 @@ import { explainSyncEvent, friendlyTarget } from '../lib/syncBus';
 import { useConfirm } from './ConfirmDialog';
 import { KIND_LABELS, NOTIFICATION_KIND_ORDER, type NotificationKind } from '../lib/growNotifTypes';
 import type { DeliveryResult, PermissionState } from '../lib/notifications';
+import type { PushOutcome } from '../lib/pushSubscription';
 import type { GrowNotifications } from '../hooks/useNotifications';
 
 const copyText = async (text: string): Promise<boolean> => {
@@ -105,7 +106,7 @@ const PERMISSION_SHORT: Record<PermissionState, string> = {
 
 // Yang boleh dan tidak boleh diharapkan dari perangkat ini, dinyatakan apa adanya.
 function channelRows(notifications: GrowNotifications) {
-  const { channel } = notifications;
+  const { channel, push } = notifications;
   return [
     {
       label: 'Izin notifikasi browser',
@@ -123,14 +124,20 @@ function channelRows(notifications: GrowNotifications) {
       ok: channel.standalone,
     },
     {
-      label: 'Pengingat saat aplikasi tertutup',
-      value: channel.offlineReminder ? 'didukung browser' : 'tidak didukung browser',
-      ok: channel.offlineReminder,
+      label: 'Alamat perangkat terdaftar di server push',
+      value: push.subscribed ? `aktif${push.service ? ` lewat ${push.service}` : ''}` : 'belum terdaftar',
+      ok: push.subscribed,
     },
     {
-      label: 'Kabar saat HP pasangan tertutup',
-      value: 'belum — perlu pengirim push dari server',
-      ok: false,
+      label: 'Kabar saat HP tertutup',
+      value: channel.pushCapable
+        ? push.subscribed
+          ? 'bisa, asal server pengirim sudah dipasang'
+          : 'perlu tombol hubungkan di bawah'
+        : channel.pushBlocker === 'no-key'
+          ? 'build ini belum membawa kunci push'
+          : 'browser ini tidak menyediakan langganan push',
+      ok: channel.pushCapable && push.subscribed,
     },
   ];
 }
@@ -205,6 +212,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleNotifTest = async () => {
     setNotifTestResult(TEST_RESULT_COPY[await notifications.notifyTest()]);
+  };
+
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushAnswer, setPushAnswer] = useState('');
+
+  const PUSH_ANSWER: Record<PushOutcome, string> = {
+    subscribed: 'Alamat perangkat ini sudah disimpan server, jadi HP bisa dibangunkan walau aplikasinya tertutup.',
+    unsupported: 'Browser ini tidak menyediakan layanan push.',
+    unconfigured: 'Build ini belum membawa kunci push, jadi belum ada yang bisa mengirim kabar ke HP tertutup.',
+    'no-permission': 'Izin notifikasi belum diberikan, dan tanpa itu browser menolak membuat langganan push.',
+    failed: 'Browser menolak membuat langganan push. Coba pasang dulu aplikasinya, lalu tekan lagi.',
+  };
+
+  const handlePushToggle = async () => {
+    setPushBusy(true);
+    try {
+      if (notifications.push.subscribed) {
+        await notifications.disablePush();
+        setPushAnswer('Alamatnya dilepas. Kabar pasangan akan menunggu di antrean sampai aplikasi dibuka.');
+      } else {
+        setPushAnswer(PUSH_ANSWER[await notifications.enablePush()]);
+      }
+    } finally {
+      setPushBusy(false);
+    }
   };
 
   const [editName, setEditName] = useState(currentUser.displayName);
@@ -1175,6 +1207,45 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                   ))}
                 </dl>
+              </div>
+
+              <div
+                data-notif-push={notifications.push.subscribed ? 'subscribed' : 'unavailable'}
+                className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700 space-y-2.5"
+              >
+                <h4 className="text-xs font-bold text-stone-800 dark:text-stone-200">
+                  Kabar walau aplikasi tertutup
+                </h4>
+                <p className="text-[11px] text-stone-600 dark:text-stone-400 leading-relaxed">
+                  {notifications.push.subscribed
+                    ? `Alamat perangkat ini sudah tercatat di layanan${
+                        notifications.push.service ? ` ${notifications.push.service}` : ''
+                      }. Selama pengirim servernya terpasang, pelukan pasangan bisa membangunkan HP-mu tanpa kamu buka aplikasinya.`
+                    : notifications.channel.pushCapable
+                      ? 'Perangkat ini belum menyerahkan alamat push-nya ke server. Tanpa itu, kabar hanya masuk saat aplikasinya masih hidup.'
+                      : notifications.channel.pushBlocker === 'no-key'
+                        ? 'Paket yang kamu buka ini tidak membawa kunci push, jadi belum ada jalur ke HP yang tertutup. Kabar tetap menunggu di antrean.'
+                        : 'Browser ini tidak menyediakan langganan push (PushManager), jadi HP yang tertutup belum bisa dibangunkan dari sini. Chrome dan Firefox di Android, serta Safari di iPhone setelah dipasang ke Layar Utama, menyediakannya. Kabar tetap menunggu di antrean.'}
+                </p>
+                {!notifications.channel.pushCapable ? null : (
+                  <button
+                    type="button"
+                    onClick={() => void handlePushToggle()}
+                    disabled={pushBusy}
+                    className="min-h-[44px] px-4 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-semibold disabled:opacity-60"
+                  >
+                    {pushBusy
+                      ? 'Memproses...'
+                      : notifications.push.subscribed
+                        ? 'Lepas langganan push'
+                        : 'Hubungkan kabar HP tertutup'}
+                  </button>
+                )}
+                {pushAnswer && (
+                  <p role="status" className="text-[11px] text-stone-600 dark:text-stone-400">
+                    {pushAnswer}
+                  </p>
+                )}
               </div>
 
               {notifications.log.length > 0 && (

@@ -42,6 +42,7 @@ import {
   retryAnonymousSession,
   resetDeviceIdentity,
 } from '../lib/firebase';
+import { removePush } from '../lib/pushSubscription';
 import {
   collection,
   doc,
@@ -819,6 +820,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // identity and starting fresh, which lands on the room-code screen.
   const switchAccount = async () => {
     removeStorage(DISPLAY_NAME_KEY);
+    // Alamat push milik identitas lama harus ikut dilepas: setelah uid-nya hilang
+    // tidak ada yang boleh menghapusnya lagi, dan HP ini akan terus dibangunkan
+    // oleh kabar dari ruang yang baru saja ditinggalkan.
+    await removePush().catch(() => undefined);
     await resetDeviceIdentity();
   };
 
@@ -830,6 +835,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!user) throw new Error('Sesi berakhir. Muat ulang halaman lalu coba lagi.');
 
     cloudSyncEnabled = true;
+    await removePush().catch(() => undefined);
 
     const coupleId = currentUser.coupleId;
     let room = coupleRef.current;

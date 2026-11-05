@@ -146,9 +146,9 @@ async function cancelPending(tag: string): Promise<void> {
 
 // Periodic sync has no data of its own: it wakes a running window so the app can
 // recompute what is due, since only the page can read the couple's state.
-async function tickClients(): Promise<void> {
+async function notifyClients(message: GrowNotifMessage): Promise<void> {
   const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-  windows.forEach((window) => window.postMessage({ type: 'gt:tick' } satisfies GrowNotifMessage));
+  windows.forEach((window) => (window as MessageTarget).postMessage(message));
 }
 
 function parsePushPayload(text: string): GrowNotification | null {
@@ -178,7 +178,23 @@ self.addEventListener('push', (event) => {
   const text = pushEvent.data?.text();
   const payload = text ? parsePushPayload(text) : null;
   if (!payload) return;
-  pushEvent.waitUntil(deliver(payload));
+  pushEvent.waitUntil(
+    (async () => {
+      await deliver(payload);
+      // A page that happens to be open learns the news arrived over the push
+      // channel, so the delivery log can tell the two routes apart.
+      const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      for (const window of windows) {
+        (window as MessageTarget).postMessage({ type: 'gt:push-received', notification: payload });
+      }
+    })()
+  );
+});
+
+// Push addresses expire on their own (Chrome rotates them, a reinstall voids
+// them). The worker cannot re-subscribe without the page's VAPID key, so it asks.
+self.addEventListener('pushsubscriptionchange', () => {
+  void notifyClients({ type: 'gt:push-renew' });
 });
 
 self.addEventListener('notificationclick', (event) => {
@@ -211,7 +227,7 @@ self.addEventListener('notificationclick', (event) => {
 self.addEventListener('periodicsync', (event) => {
   const syncEvent = event as TaggedEvent;
   if (syncEvent.tag !== PERIODIC_SYNC_TAG) return;
-  syncEvent.waitUntil(tickClients());
+  syncEvent.waitUntil(notifyClients({ type: 'gt:tick' }));
 });
 
 self.addEventListener('message', (event) => {

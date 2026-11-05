@@ -38,7 +38,11 @@ export type GrowNotifMessage =
   | { type: 'gt:scheduled'; kind: NotificationKind; ok: boolean }
   | { type: 'gt:cancel'; tag: string }
   | { type: 'gt:tick' }
-  | { type: 'gt:action'; action: 'gt-reply-hug'; notification: GrowNotification };
+  | { type: 'gt:action'; action: 'gt-reply-hug'; notification: GrowNotification }
+  /** The push service dropped this device's address; only a page can renew it. */
+  | { type: 'gt:push-renew' }
+  /** News that arrived through the push channel, so the page can log it. */
+  | { type: 'gt:push-received'; notification: GrowNotification };
 
 export const REPLY_HUG_ACTION: GrowNotifAction = {
   action: 'gt-reply-hug',
