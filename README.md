@@ -180,9 +180,12 @@ npm run test:devices  # dua browser nyata: kabar benar-benar keluar saat HP tert
 Build untuk subpath `/GrowTogether/` lalu dorong isi `dist/` ke branch `gh-pages`:
 
 ```bash
-VITE_BASE_PATH=/GrowTogether/ npm run build
+npm run build:pages
+# cek ulang: npm run check:pages
 # salin isi dist/ ke branch gh-pages (Pages: Deploy from a branch → gh-pages → /)
 ```
+
+`build:pages` membangun dengan base `/GrowTogether/` lalu memverifikasi bahwa setiap URL yang benar-benar tertulis di `index.html`, `sw.js`, dan manifest menunjuk file yang ikut ter-build. Jangan pakai `VITE_BASE_PATH=/GrowTogether/ npm run build` dari Git Bash: shell itu mengubah nilai berawalan `/` menjadi path Windows, sehingga hasilnya adalah halaman putih di semua ponsel karena aset 404.
 
 Sertakan file `.nojekyll` di root branch `gh-pages`.
 

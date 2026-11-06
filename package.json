@@ -17,7 +17,9 @@
     "test:devices": "node scripts/qa-two-devices.cjs",
     "deploy:rules": "npx --yes firebase-tools deploy --only firestore:rules",
     "deploy:push": "npx --yes firebase-tools deploy --only functions --project growtogether-rafiabdillah",
-    "deploy:hosting": "npm run build && npx --yes firebase-tools deploy --only hosting"
+    "deploy:hosting": "npm run build && npx --yes firebase-tools deploy --only hosting",
+    "build:pages": "node scripts/build-pages.cjs",
+    "check:pages": "node scripts/check-pages-build.cjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

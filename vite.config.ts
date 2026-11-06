@@ -6,8 +6,19 @@ import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
-  // Override for sub-path hosting (e.g. VITE_BASE_PATH=/GrowTogether/).
-  const base = process.env.VITE_BASE_PATH || '/';
+  // Base path hosting. GT_TARGET=pages is the safe spelling for a GitHub Pages
+  // build: an env *value* like /GrowTogether/ gets rewritten by MSYS on Git Bash
+  // into a Windows path, which used to ship index.html pointing at 404 assets and
+  // every phone opened a white screen.
+  const pagesBase = '/GrowTogether/';
+  const rawBase = process.env.GT_TARGET === 'pages' ? pagesBase : process.env.VITE_BASE_PATH || '/';
+  if (rawBase !== '/' && !/^\/[^\s]*\/$/.test(rawBase)) {
+    throw new Error(
+      `VITE_BASE_PATH "${rawBase}" bukan path hosting yang wajar — pakai "npm run build:pages" ` +
+        `(GT_TARGET=pages) atau isi VITE_BASE_PATH dengan bentuk /nama-folder/.`
+    );
+  }
+  const base = rawBase;
   const version = JSON.parse(
     readFileSync(path.join(import.meta.dirname, 'package.json'), 'utf8')
   ).version as string;

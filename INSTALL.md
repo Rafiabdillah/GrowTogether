@@ -57,8 +57,10 @@ Buka `http://localhost:4173`. Sesi anonim Firebase dibuat otomatis selama provid
 
 Arsip `GrowTogether-1.2.0-web.zip` berisi hasil build statis (`dist/`) dan panduan ini. Ekstrak lalu unggah isi foldernya ke **root** hosting HTTPS apa pun (Firebase Hosting, Netlify, Vercel, Nginx), atau ikuti `README.md` untuk deploy ke Firebase Hosting dengan `npm run deploy:hosting`.
 
-Build zip memakai base path `/`, jadi paling mudah di-hosting di root domain/subdomain. Untuk hosting di subfolder (seperti GitHub Pages `/GrowTogether/`), build ulang dengan:
+Build zip memakai base path `/`, jadi paling mudah di-hosting di root domain/subdomain. Untuk hosting di subfolder (seperti GitHub Pages `/GrowTogether/`), gunakan:
 
 ```bash
-VITE_BASE_PATH=/GrowTogether/ npm run build
+npm run build:pages
 ```
+
+Perintah itu membangun dengan base `/GrowTogether/` sekaligus memeriksa hasil `index.html`, `sw.js`, dan manifest menunjuk ke file yang benar-benar ada. Jangan menjalankan `VITE_BASE_PATH=/GrowTogether/ npm run build` dari Git Bash di Windows — shell tersebut mengubah nilai berawalan `/` menjadi path Windows dan aplikasi akan tampil putih karena semua aset 404.
