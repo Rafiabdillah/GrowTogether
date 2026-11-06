@@ -72,6 +72,38 @@ Chrome nyata, bukan simulasi):
   menambah misi di server **tanpa** menambah satu bagian pun, dan legend Hari Ini
   menyebut angka database + nama bagian berikutnya.
 
+## Catatan deploy 6 November 2026 — kenapa sempat layar putih di HP
+
+Build v1.2.7 yang pertama kali naik ke GitHub Pages membuat aplikasi tampil putih di
+ponsel. Penyebabnya bukan fitur pohon, melainkan **base path hasil build**:
+
+- v1.2.6 dibangun dengan `VITE_BASE_PATH=/GrowTogether/` dari Git Bash di Windows, dan
+  shell itu mengubah *nilai* berawalan `/` menjadi path Windows — `index.html` akhirnya
+  menunjuk `/Program Files/Git/GrowTogether/assets/...` yang obviously 404.
+- v1.2.7 dibangun tanpa variabel itu sama sekali, jadi aset diarahkan ke root
+  `/assets/...` sementara situs hidup di subfolder `/GrowTogether/` — 404 lagi, layar
+  putih lagi.
+
+Kedua build itu lolos pemeriksaan saya karena yang dicek hanya versi di `sw.js`, bukan
+URL yang benar-benar tertulis di `index.html`. Sudah diperbaiki dan diverifikasi ulang:
+
+- `npm run build:pages` (commit `5ddf429`) memakai `GT_TARGET=pages` — nilai env tanpa
+  garis miring, jadi kebal konversi shell — lalu `scripts/check-pages-build.cjs` membaca
+  `index.html`, `sw.js`, dan manifest hasil build dan menuntut setiap URL berprefiks
+  `/GrowTogether/` serta file-nya benar-benar ada; `vite.config.ts` menolak nilai base
+  yang bentuknya bukan `/nama-folder/`.
+- Artefak live sekarang memuat `/GrowTogether/assets/index-BlzWKDcd.js` dan **22 file
+  hasil build semuanya mengembalikan HTTP 200**, `manifest.start_url`/`scope` =
+  `/GrowTogether/`, dan `GrowTogether-1.2.7-web.zip` di release sudah diganti dengan zip
+  hasil build yang benar.
+
+Data kalian tidak tersentuh sama sekali — yang salah hanya cara bundelnya menunjuk file.
+Kalau HP kalian masih putih setelah perbaikan ini, yang nyangkut adalah cache service
+worker lama: buka https://rafiabdillah.github.io/GrowTogether/ di Chrome biasa (bukan
+lewat ikon), lalu kalau masih putih hapus data situs GrowTogether lewat
+**Setelan → Situs dan aplikasi → Izin situs → Hapus data**, atau copot pasangannya lewat
+**Pengaturan aplikasi → Tambahkan ke layar utama → Copot pemasangan** lalu pasang ulang.
+
 ## Batasan yang perlu kalian tahu
 
 - Bagian pohon hanya muncul di tema **Pulau** dan **Bonsai** (dua-duanya di 3D dan di
